@@ -4,7 +4,6 @@ import {
   ClipboardList,
   Map as MapIcon,
   CheckCircle,
-  Search,
   X,
   Camera,
   Image as ImageIcon,
@@ -20,6 +19,18 @@ L.Icon.Default.mergeOptions({
 });
 
 const LS_KEY_V3 = "construction_fault_reports_v3";
+const CANTIERI = [
+  "A6",
+  "Altamura",
+  "Borgonovo",
+  "Rovigo",
+  "Serrotti EST",
+  "Stomeo",
+  "Stornarella",
+  "Uta",
+  "Villacidro 1",
+  "Villacidro 2",
+];
 
 function nowISO() {
   return new Date().toISOString();
@@ -83,9 +94,11 @@ export default function App() {
   });
   const [view, setView] = useState("list");
   const [search, setSearch] = useState("");
+  const [selectedCantiere, setSelectedCantiere] = useState("Tutti");
   const [userPos, setUserPos] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
   const fileRef = useRef();
   const commentRef = useRef();
 
@@ -137,6 +150,7 @@ export default function App() {
       const newReport = {
         id: "r_" + Math.random().toString(36).slice(2, 9),
         createdAt: timestamp,
+        cantiere: newCantiere,
         comment: commentRef.current?.value || "",
         photos,
         completed: false,
@@ -172,11 +186,16 @@ export default function App() {
     setReports((prev) => prev.filter((r) => r.id !== id));
   }
 
-  const filtered = reports.filter((r) =>
-    r.comment.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = reports.filter((r) => {
+    const textMatch = r.comment.toLowerCase().includes(search.toLowerCase());
+    const cantiereMatch =
+      selectedCantiere === "Tutti" || r.cantiere === selectedCantiere;
+    return textMatch && cantiereMatch;
+  });
+
   const active = filtered.filter((r) => !r.completed);
   const completed = filtered.filter((r) => r.completed);
+
   const photoMarkers = reports
     .flatMap((r) =>
       r.photos.map((p) => ({
@@ -184,6 +203,7 @@ export default function App() {
         lat: p.lat,
         lng: p.lng,
         dataUrl: p.dataUrl,
+        cantiere: r.cantiere,
         comment: r.comment,
         createdAt: p.timestamp,
         completed: r.completed,
@@ -198,13 +218,26 @@ export default function App() {
           ⚠️ {error}
         </div>
       )}
+
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow p-3 sm:p-4">
           <h1 className="text-2xl sm:text-3xl font-bold mb-3 text-center">
             Construction Fault
           </h1>
-          {/* Form segnalazione */}
+
+          {/* Form nuova segnalazione */}
           <div className="p-3 border rounded mb-3">
+            <label className="block text-sm font-medium mb-1">Cantiere</label>
+            <select
+              value={newCantiere}
+              onChange={(e) => setNewCantiere(e.target.value)}
+              className="w-full border p-2 rounded text-sm mb-2"
+            >
+              {CANTIERI.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+
             <label className="block text-sm font-medium mb-1">Commento</label>
             <textarea
               ref={commentRef}
@@ -212,6 +245,7 @@ export default function App() {
               className="w-full border p-2 rounded text-sm"
               placeholder="Descrivi il problema..."
             ></textarea>
+
             <div className="mt-2 flex flex-wrap gap-2">
               <input
                 ref={fileRef}
@@ -229,6 +263,7 @@ export default function App() {
               >
                 <Camera size={18} /> Scatta foto
               </label>
+
               <input
                 id="galleryInput"
                 type="file"
@@ -243,6 +278,7 @@ export default function App() {
               >
                 <ImageIcon size={18} /> Carica da galleria
               </label>
+
               <button
                 onClick={() => {
                   if (commentRef.current) commentRef.current.value = "";
@@ -253,6 +289,7 @@ export default function App() {
                 <X size={18} /> Annulla
               </button>
             </div>
+
             <div className="mt-2 text-sm text-gray-500">
               Posizione attuale:{" "}
               {userPos
@@ -260,8 +297,23 @@ export default function App() {
                 : "Non disponibile (consenti geolocalizzazione)"}
             </div>
           </div>
+
           {/* Ricerca */}
           <div className="p-3 border rounded mb-3">
+            <label className="block text-sm font-medium mb-1">
+              Filtra per cantiere
+            </label>
+            <select
+              value={selectedCantiere}
+              onChange={(e) => setSelectedCantiere(e.target.value)}
+              className="w-full border p-2 rounded text-sm mb-2"
+            >
+              <option>Tutti</option>
+              {CANTIERI.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+
             <label className="block text-sm font-medium mb-1">
               Ricerca commenti
             </label>
@@ -280,7 +332,8 @@ export default function App() {
               </button>
             </div>
           </div>
-          {/* Lista / Mappa */}
+
+          {/* Lista o mappa */}
           {view === "map" ? (
             <div className="h-96 border rounded overflow-hidden">
               <MapContainer
@@ -303,6 +356,9 @@ export default function App() {
                           alt="foto"
                           className="w-full h-32 object-cover rounded mb-2"
                         />
+                        <div className="text-sm font-semibold text-green-700">
+                          {m.cantiere}
+                        </div>
                         <div className="text-sm">{m.comment}</div>
                         <div className="text-xs text-gray-500">
                           Scattata: {formatDate(m.createdAt)}
@@ -342,7 +398,10 @@ export default function App() {
                   <div className="flex-1 text-sm">
                     <div className="flex justify-between">
                       <div>
-                        <div className="font-semibold">
+                        <div className="font-semibold text-green-700">
+                          {r.cantiere}
+                        </div>
+                        <div className="font-medium">
                           {r.comment || (
                             <span className="text-gray-400">
                               (nessun commento)
@@ -395,13 +454,15 @@ export default function App() {
           )}
         </div>
       </div>
+
       {/* Toast successo */}
       {success && (
         <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-full shadow-lg text-sm animate-fade-in-out">
           ✅ Segnalazione salvata con successo
         </div>
       )}
-      {/* MENU */}
+
+      {/* MENU MOBILE */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-inner flex justify-around py-2 sm:hidden z-50">
         <button
           onClick={() => setView("list")}
