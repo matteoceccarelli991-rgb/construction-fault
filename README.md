@@ -1,0 +1,1 @@
+# Construction Fault\n\nDemo app React per segnalazioni fotografiche geolocalizzate.\n\n## Setup\n\n1. npm install\n2. npm run dev\n3. Deploy su Vercel\n
