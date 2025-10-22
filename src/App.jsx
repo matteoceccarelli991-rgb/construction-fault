@@ -1,5 +1,13 @@
 import React, { useEffect, useState, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import {
+  ClipboardList,
+  Map as MapIcon,
+  CheckCircle,
+  Search,
+  X,
+  Camera,
+} from "lucide-react";
 import L from "leaflet";
 
 // Fix per icone Leaflet
@@ -11,7 +19,8 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const LS_KEY = "construction_fault_reports_v2";
+const LS_KEY_V2 = "construction_fault_reports_v2";
+const LS_KEY_V3 = "construction_fault_reports_v3";
 
 function nowISO() {
   return new Date().toISOString();
@@ -20,15 +29,22 @@ function nowISO() {
 function useLocalReports() {
   const [reports, setReports] = useState(() => {
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const rawNew = localStorage.getItem(LS_KEY_V3);
+      if (rawNew) return JSON.parse(rawNew);
+      const rawOld = localStorage.getItem(LS_KEY_V2);
+      if (rawOld) {
+        const parsed = JSON.parse(rawOld);
+        localStorage.setItem(LS_KEY_V3, JSON.stringify(parsed));
+        return parsed;
+      }
+      return [];
     } catch {
       return [];
     }
   });
 
   useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify(reports));
+    localStorage.setItem(LS_KEY_V3, JSON.stringify(reports));
   }, [reports]);
 
   return [reports, setReports];
@@ -52,7 +68,7 @@ function MapAutoFit({ markers }) {
 
 export default function App() {
   const [reports, setReports] = useLocalReports();
-  const [view, setView] = useState("list"); // 'list' | 'map' | 'completed'
+  const [view, setView] = useState("list"); // list | map | completed
   const [search, setSearch] = useState("");
   const [userPos, setUserPos] = useState(null);
   const fileRef = useRef();
@@ -64,15 +80,14 @@ export default function App() {
         (p) => {
           setUserPos({ lat: p.coords.latitude, lng: p.coords.longitude });
         },
-        (err) => {
-          console.warn("Geolocation error", err.message);
-        }
+        (err) => console.warn("Geolocation error", err.message)
       );
     }
   }, []);
 
   function addReportFromFiles(files) {
     if (!files || !files.length) return;
+
     const createReport = (pos) => {
       const timestamp = nowISO();
       const filePromises = Array.from(files).map(
@@ -109,35 +124,31 @@ export default function App() {
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (p) => {
-          createReport({ lat: p.coords.latitude, lng: p.coords.longitude });
-        },
+        (p) => createReport({ lat: p.coords.latitude, lng: p.coords.longitude }),
         () => createReport(userPos)
       );
-    } else {
-      createReport(userPos);
-    }
+    } else createReport(userPos);
   }
 
-  function markCompleted(reportId) {
+  function markCompleted(id) {
     setReports((prev) =>
       prev.map((r) =>
-        r.id === reportId ? { ...r, completed: true, completedAt: nowISO() } : r
+        r.id === id ? { ...r, completed: true, completedAt: nowISO() } : r
       )
     );
   }
 
-  function markReopen(reportId) {
+  function markReopen(id) {
     setReports((prev) =>
       prev.map((r) =>
-        r.id === reportId ? { ...r, completed: false, completedAt: null } : r
+        r.id === id ? { ...r, completed: false, completedAt: null } : r
       )
     );
   }
 
-  function deleteReport(reportId) {
+  function deleteReport(id) {
     if (!confirm("Eliminare la segnalazione?")) return;
-    setReports((prev) => prev.filter((r) => r.id !== reportId));
+    setReports((prev) => prev.filter((r) => r.id !== id));
   }
 
   const filtered = reports.filter((r) =>
@@ -161,228 +172,226 @@ export default function App() {
     .filter((m) => m.lat != null && m.lng != null);
 
   return (
-    <div className="min-h-screen bg-green-600 text-gray-900 p-4">
-      <div className="max-w-5xl mx-auto bg-white rounded-2xl shadow p-4">
-        <header className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Construction Fault</h1>
-          <div className="space-x-2">
-            <button
-              onClick={() => setView("list")}
-              className="px-3 py-1 rounded bg-gray-100"
-            >
-              Lista
-            </button>
-            <button
-              onClick={() => setView("map")}
-              className="px-3 py-1 rounded bg-gray-100"
-            >
-              Mappa
-            </button>
-            <button
-              onClick={() => setView("completed")}
-              className="px-3 py-1 rounded bg-gray-100"
-            >
-              Completate
-            </button>
-          </div>
-        </header>
+    <div className="min-h-screen flex flex-col bg-green-600 text-gray-900">
+      <div className="flex-1 overflow-y-auto p-3 pb-20">
+        <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow p-3 sm:p-4">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-3 text-center">
+            Construction Fault
+          </h1>
 
-        <section className="grid md:grid-cols-2 gap-4">
-          <div className="space-y-3">
-            <div className="p-3 border rounded">
-              <label className="block text-sm font-medium mb-1">
-                Commento
-              </label>
-              <textarea
-                ref={commentRef}
-                rows={3}
-                className="w-full border p-2 rounded"
-                placeholder="Descrivi il problema..."
-              ></textarea>
+          {/* Form nuova segnalazione */}
+          <div className="p-3 border rounded mb-3">
+            <label className="block text-sm font-medium mb-1">Commento</label>
+            <textarea
+              ref={commentRef}
+              rows={3}
+              className="w-full border p-2 rounded text-sm"
+              placeholder="Descrivi il problema..."
+            ></textarea>
 
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  capture="environment"
-                />
-                <button
-                  onClick={() => addReportFromFiles(fileRef.current?.files)}
-                  className="px-3 py-2 bg-green-600 text-white rounded"
-                >
-                  Salva segnalazione
-                </button>
-                <button
-                  onClick={() => {
-                    if (fileRef.current) fileRef.current.value = "";
-                    if (commentRef.current) commentRef.current.value = "";
-                  }}
-                  className="px-3 py-2 bg-gray-200 rounded"
-                >
-                  Annulla
-                </button>
-              </div>
-
-              <div className="mt-2 text-sm text-gray-500">
-                Posizione attuale:{" "}
-                {userPos
-                  ? `${userPos.lat.toFixed(6)}, ${userPos.lng.toFixed(6)}`
-                  : "Non disponibile (consenti geolocalizzazione)"}
-              </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                capture="environment"
+              />
+              <button
+                onClick={() => addReportFromFiles(fileRef.current?.files)}
+                className="flex items-center justify-center gap-1 px-4 py-2 bg-green-600 text-white rounded-md w-full sm:w-auto"
+              >
+                <Camera size={18} /> Salva segnalazione
+              </button>
+              <button
+                onClick={() => {
+                  if (fileRef.current) fileRef.current.value = "";
+                  if (commentRef.current) commentRef.current.value = "";
+                }}
+                className="flex items-center justify-center gap-1 px-4 py-2 bg-gray-200 rounded-md w-full sm:w-auto"
+              >
+                <X size={18} /> Annulla
+              </button>
             </div>
 
-            <div className="p-3 border rounded">
-              <label className="block text-sm font-medium mb-1">
-                Ricerca commenti
-              </label>
-              <div className="flex gap-2">
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="flex-1 border p-2 rounded"
-                  placeholder="Cerca nei commenti..."
-                />
-                <button className="px-3 py-2 bg-blue-600 text-white rounded">
-                  Trova
-                </button>
-                <button
-                  onClick={() => setSearch("")}
-                  className="px-3 py-2 bg-gray-300 rounded"
-                >
-                  Pulisci
-                </button>
-              </div>
-            </div>
-
-            <div className="p-3 border rounded">
-              <h3 className="font-semibold mb-2">Statistiche</h3>
-              <div>Segnalazioni totali: {reports.length}</div>
-              <div>Attive: {reports.filter((r) => !r.completed).length}</div>
-              <div>Completate: {reports.filter((r) => r.completed).length}</div>
+            <div className="mt-2 text-sm text-gray-500">
+              Posizione attuale:{" "}
+              {userPos
+                ? `${userPos.lat.toFixed(6)}, ${userPos.lng.toFixed(6)}`
+                : "Non disponibile (consenti geolocalizzazione)"}
             </div>
           </div>
 
-          <div className="space-y-3">
-            {view === "map" ? (
-              <div className="h-96 border rounded overflow-hidden">
-                <MapContainer
-                  center={[45.4642, 9.19]}
-                  zoom={13}
-                  style={{ height: "100%", width: "100%" }}
-                >
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                  {userPos && (
-                    <Marker position={[userPos.lat, userPos.lng]}>
-                      <Popup>La tua posizione</Popup>
-                    </Marker>
-                  )}
-                  {photoMarkers.map((m, idx) => (
-                    <Marker key={idx} position={[m.lat, m.lng]}>
-                      <Popup>
-                        <div className="max-w-xs">
-                          <img
-                            src={m.dataUrl}
-                            alt="foto"
-                            className="w-full h-32 object-cover rounded mb-2"
-                          />
-                          <div className="text-sm">{m.comment}</div>
-                          <div className="text-xs text-gray-500">
-                            Scattata: {formatDate(m.createdAt)}
-                          </div>
-                          <div className="text-xs">
-                            {m.completed ? "Completata" : "Aperta"}
-                          </div>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  ))}
-                  <MapAutoFit
-                    markers={photoMarkers.map((m) => ({
-                      lat: m.lat,
-                      lng: m.lng,
-                    }))}
-                  />
-                </MapContainer>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-96 overflow-auto">
-                {(view === "list" ? active : completed).map((r) => (
-                  <div key={r.id} className="border rounded p-2 flex gap-3">
-                    <div className="w-28 grid grid-cols-1 gap-1 overflow-hidden">
-                      {r.photos.map((p, i) => (
+          {/* Ricerca */}
+          <div className="p-3 border rounded mb-3">
+            <label className="block text-sm font-medium mb-1">
+              Ricerca commenti
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1 border p-2 rounded text-sm"
+                placeholder="Cerca nei commenti..."
+              />
+              <button className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-md w-full sm:w-auto">
+                <Search size={16} /> Trova
+              </button>
+              <button
+                onClick={() => setSearch("")}
+                className="flex items-center gap-1 px-3 py-2 bg-gray-300 rounded-md w-full sm:w-auto"
+              >
+                <X size={16} /> Pulisci
+              </button>
+            </div>
+          </div>
+
+          {/* Contenuto */}
+          {view === "map" ? (
+            <div className="h-96 border rounded overflow-hidden">
+              <MapContainer
+                center={[45.4642, 9.19]}
+                zoom={13}
+                style={{ height: "100%", width: "100%" }}
+              >
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                {userPos && (
+                  <Marker position={[userPos.lat, userPos.lng]}>
+                    <Popup>La tua posizione</Popup>
+                  </Marker>
+                )}
+                {photoMarkers.map((m, i) => (
+                  <Marker key={i} position={[m.lat, m.lng]}>
+                    <Popup>
+                      <div className="max-w-xs">
                         <img
-                          key={i}
-                          src={p.dataUrl}
-                          className="w-28 h-20 object-cover rounded"
-                          alt="thumb"
+                          src={m.dataUrl}
+                          alt="foto"
+                          className="w-full h-32 object-cover rounded mb-2"
                         />
-                      ))}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="font-semibold">
-                            {r.comment || (
-                              <span className="text-gray-400">
-                                (nessun commento)
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Creata: {formatDate(r.createdAt)}
-                          </div>
-                          {r.completed && (
-                            <div className="text-xs text-green-600">
-                              Completata: {formatDate(r.completedAt)}
-                            </div>
+                        <div className="text-sm">{m.comment}</div>
+                        <div className="text-xs text-gray-500">
+                          Scattata: {formatDate(m.createdAt)}
+                        </div>
+                        <div className="text-xs">
+                          {m.completed ? "Completata" : "Aperta"}
+                        </div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+                <MapAutoFit
+                  markers={photoMarkers.map((m) => ({
+                    lat: m.lat,
+                    lng: m.lng,
+                  }))}
+                />
+              </MapContainer>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[60vh] overflow-auto">
+              {(view === "list" ? active : completed).map((r) => (
+                <div
+                  key={r.id}
+                  className="border rounded p-2 flex flex-col sm:flex-row gap-2"
+                >
+                  <div className="flex-shrink-0 grid grid-cols-3 gap-1 sm:w-28">
+                    {r.photos.map((p, i) => (
+                      <img
+                        key={i}
+                        src={p.dataUrl}
+                        className="w-full h-20 object-cover rounded"
+                        alt="thumb"
+                      />
+                    ))}
+                  </div>
+                  <div className="flex-1 text-sm">
+                    <div className="flex justify-between">
+                      <div>
+                        <div className="font-semibold">
+                          {r.comment || (
+                            <span className="text-gray-400">
+                              (nessun commento)
+                            </span>
                           )}
                         </div>
-                        <div className="space-y-1 text-right">
-                          {!r.completed ? (
-                            <button
-                              onClick={() => markCompleted(r.id)}
-                              className="px-2 py-1 bg-green-600 text-white rounded text-sm"
-                            >
-                              Completato
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => markReopen(r.id)}
-                              className="px-2 py-1 bg-yellow-300 rounded text-sm"
-                            >
-                              Riapri
-                            </button>
-                          )}
+                        <div className="text-xs text-gray-500">
+                          Creata: {formatDate(r.createdAt)}
+                        </div>
+                        {r.completed && (
+                          <div className="text-xs text-green-600">
+                            Completata: {formatDate(r.completedAt)}
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-1 text-right">
+                        {!r.completed ? (
                           <button
-                            onClick={() => deleteReport(r.id)}
-                            className="px-2 py-1 bg-red-500 text-white rounded text-sm"
+                            onClick={() => markCompleted(r.id)}
+                            className="px-2 py-1 bg-green-600 text-white rounded text-xs"
                           >
-                            Elimina
+                            Completato
                           </button>
-                        </div>
+                        ) : (
+                          <button
+                            onClick={() => markReopen(r.id)}
+                            className="px-2 py-1 bg-yellow-300 rounded text-xs"
+                          >
+                            Riapri
+                          </button>
+                        )}
+                        <button
+                          onClick={() => deleteReport(r.id)}
+                          className="px-2 py-1 bg-red-500 text-white rounded text-xs"
+                        >
+                          Elimina
+                        </button>
                       </div>
                     </div>
                   </div>
-                ))}
-
-                {((view === "list" && active.length === 0) ||
-                  (view === "completed" && completed.length === 0)) && (
-                  <div className="p-4 text-center text-gray-500">
-                    Nessuna segnalazione qui.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-
-        <footer className="mt-4 text-sm text-gray-500">
-          App demo — archiviazione in localStorage. Per produzione integrare un
-          backend (Supabase/Firebase) e storage per immagini.
-        </footer>
+                </div>
+              ))}
+              {((view === "list" && active.length === 0) ||
+                (view === "completed" && completed.length === 0)) && (
+                <div className="p-4 text-center text-gray-500 text-sm">
+                  Nessuna segnalazione qui.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* MENU FISSO */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-inner flex justify-around py-2 sm:hidden z-50">
+        <button
+          onClick={() => setView("list")}
+          className={`flex flex-col items-center ${
+            view === "list" ? "text-green-600" : "text-gray-500"
+          }`}
+        >
+          <ClipboardList size={22} />
+          <span className="text-xs">Lista</span>
+        </button>
+        <button
+          onClick={() => setView("map")}
+          className={`flex flex-col items-center ${
+            view === "map" ? "text-green-600" : "text-gray-500"
+          }`}
+        >
+          <MapIcon size={22} />
+          <span className="text-xs">Mappa</span>
+        </button>
+        <button
+          onClick={() => setView("completed")}
+          className={`flex flex-col items-center ${
+            view === "completed" ? "text-green-600" : "text-gray-500"
+          }`}
+        >
+          <CheckCircle size={22} />
+          <span className="text-xs">Completate</span>
+        </button>
+      </nav>
     </div>
   );
 }
