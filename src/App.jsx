@@ -7,10 +7,10 @@ import {
   Search,
   X,
   Camera,
+  Image as ImageIcon,
 } from "lucide-react";
 import L from "leaflet";
 
-// Fix per icone Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl:
@@ -19,43 +19,16 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const LS_KEY_V2 = "construction_fault_reports_v2";
 const LS_KEY_V3 = "construction_fault_reports_v3";
 
 function nowISO() {
   return new Date().toISOString();
 }
-
-function useLocalReports() {
-  const [reports, setReports] = useState(() => {
-    try {
-      const rawNew = localStorage.getItem(LS_KEY_V3);
-      if (rawNew) return JSON.parse(rawNew);
-      const rawOld = localStorage.getItem(LS_KEY_V2);
-      if (rawOld) {
-        const parsed = JSON.parse(rawOld);
-        localStorage.setItem(LS_KEY_V3, JSON.stringify(parsed));
-        return parsed;
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem(LS_KEY_V3, JSON.stringify(reports));
-  }, [reports]);
-
-  return [reports, setReports];
-}
-
 function formatDate(iso) {
   if (!iso) return "-";
   const d = new Date(iso);
   return d.toLocaleString();
 }
-
 function MapAutoFit({ markers }) {
   const map = useMap();
   useEffect(() => {
@@ -65,69 +38,119 @@ function MapAutoFit({ markers }) {
   }, [markers, map]);
   return null;
 }
+async function compressImage(file, maxSizeMB = 2, maxDimension = 1000) {
+  if (file.size / 1024 / 1024 <= maxSizeMB) return file;
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.src = URL.createObjectURL(file);
+    image.onload = () => {
+      const scale = Math.min(
+        maxDimension / image.width,
+        maxDimension / image.height,
+        1
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width * scale;
+      canvas.height = image.height * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) reject(new Error("Compressione fallita"));
+          else
+            resolve(
+              new File([blob], file.name.replace(/\.[^/.]+$/, ".jpg"), {
+                type: "image/jpeg",
+              })
+            );
+        },
+        "image/jpeg",
+        0.8
+      );
+    };
+    image.onerror = () => reject(new Error("Errore caricamento immagine"));
+  });
+}
 
 export default function App() {
-  const [reports, setReports] = useLocalReports();
-  const [view, setView] = useState("list"); // list | map | completed
+  const [reports, setReports] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY_V3);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [view, setView] = useState("list");
   const [search, setSearch] = useState("");
   const [userPos, setUserPos] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
   const fileRef = useRef();
   const commentRef = useRef();
 
   useEffect(() => {
+    localStorage.setItem(LS_KEY_V3, JSON.stringify(reports));
+  }, [reports]);
+  useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (p) => {
-          setUserPos({ lat: p.coords.latitude, lng: p.coords.longitude });
-        },
-        (err) => console.warn("Geolocation error", err.message)
+        (p) => setUserPos({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => setUserPos(null)
       );
     }
   }, []);
 
-  function addReportFromFiles(files) {
-    if (!files || !files.length) return;
-
-    const createReport = (pos) => {
-      const timestamp = nowISO();
-      const filePromises = Array.from(files).map(
-        (file) =>
-          new Promise((res) => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              res({
-                dataUrl: e.target.result,
-                filename: file.name,
-                timestamp,
-                lat: pos?.lat ?? null,
-                lng: pos?.lng ?? null,
-              });
-            };
-            reader.readAsDataURL(file);
-          })
-      );
-
-      Promise.all(filePromises).then((photos) => {
-        const newReport = {
-          id: "r_" + Math.random().toString(36).slice(2, 9),
-          createdAt: timestamp,
-          comment: commentRef.current?.value || "",
-          photos,
-          completed: false,
-          completedAt: null,
-        };
-        setReports((prev) => [newReport, ...prev]);
-        if (fileRef.current) fileRef.current.value = "";
-        if (commentRef.current) commentRef.current.value = "";
+  async function addReportFromFiles(files) {
+    try {
+      setError("");
+      if (!files || !files.length) {
+        setError("Nessuna immagine selezionata");
+        return;
+      }
+      const pos = await new Promise((resolve) => {
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(
+            (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+            () => resolve(userPos)
+          );
+        } else resolve(userPos);
       });
-    };
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => createReport({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => createReport(userPos)
-      );
-    } else createReport(userPos);
+      const timestamp = nowISO();
+      const filePromises = Array.from(files).map(async (file) => {
+        const compressed = await compressImage(file);
+        return new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = (e) =>
+            res({
+              dataUrl: e.target.result,
+              filename: file.name,
+              timestamp,
+              lat: pos?.lat ?? null,
+              lng: pos?.lng ?? null,
+            });
+          reader.onerror = () => rej(new Error("Errore lettura immagine"));
+          reader.readAsDataURL(compressed);
+        });
+      });
+      const photos = await Promise.all(filePromises);
+      const newReport = {
+        id: "r_" + Math.random().toString(36).slice(2, 9),
+        createdAt: timestamp,
+        comment: commentRef.current?.value || "",
+        photos,
+        completed: false,
+        completedAt: null,
+      };
+      setReports((prev) => [newReport, ...prev]);
+      if (fileRef.current) fileRef.current.value = "";
+      if (commentRef.current) commentRef.current.value = "";
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      console.error(err);
+      setError("Errore durante il salvataggio: " + err.message);
+    }
   }
 
   function markCompleted(id) {
@@ -137,7 +160,6 @@ export default function App() {
       )
     );
   }
-
   function markReopen(id) {
     setReports((prev) =>
       prev.map((r) =>
@@ -145,7 +167,6 @@ export default function App() {
       )
     );
   }
-
   function deleteReport(id) {
     if (!confirm("Eliminare la segnalazione?")) return;
     setReports((prev) => prev.filter((r) => r.id !== id));
@@ -156,7 +177,6 @@ export default function App() {
   );
   const active = filtered.filter((r) => !r.completed);
   const completed = filtered.filter((r) => r.completed);
-
   const photoMarkers = reports
     .flatMap((r) =>
       r.photos.map((p) => ({
@@ -173,13 +193,17 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-green-600 text-gray-900">
-      <div className="flex-1 overflow-y-auto p-3 pb-20">
+      {error && (
+        <div className="bg-red-600 text-white text-sm text-center py-2">
+          ⚠️ {error}
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow p-3 sm:p-4">
           <h1 className="text-2xl sm:text-3xl font-bold mb-3 text-center">
             Construction Fault
           </h1>
-
-          {/* Form nuova segnalazione */}
+          {/* Form segnalazione */}
           <div className="p-3 border rounded mb-3">
             <label className="block text-sm font-medium mb-1">Commento</label>
             <textarea
@@ -188,32 +212,47 @@ export default function App() {
               className="w-full border p-2 rounded text-sm"
               placeholder="Descrivi il problema..."
             ></textarea>
-
             <div className="mt-2 flex flex-wrap gap-2">
               <input
                 ref={fileRef}
+                id="cameraInput"
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                multiple
+                onChange={(e) => addReportFromFiles(e.target.files)}
+              />
+              <label
+                htmlFor="cameraInput"
+                className="flex items-center justify-center gap-1 px-4 py-2 bg-green-600 text-white rounded-md cursor-pointer w-full sm:w-auto"
+              >
+                <Camera size={18} /> Scatta foto
+              </label>
+              <input
+                id="galleryInput"
                 type="file"
                 accept="image/*"
                 multiple
-                capture="environment"
+                className="hidden"
+                onChange={(e) => addReportFromFiles(e.target.files)}
               />
-              <button
-                onClick={() => addReportFromFiles(fileRef.current?.files)}
-                className="flex items-center justify-center gap-1 px-4 py-2 bg-green-600 text-white rounded-md w-full sm:w-auto"
+              <label
+                htmlFor="galleryInput"
+                className="flex items-center justify-center gap-1 px-4 py-2 bg-blue-600 text-white rounded-md cursor-pointer w-full sm:w-auto"
               >
-                <Camera size={18} /> Salva segnalazione
-              </button>
+                <ImageIcon size={18} /> Carica da galleria
+              </label>
               <button
                 onClick={() => {
-                  if (fileRef.current) fileRef.current.value = "";
                   if (commentRef.current) commentRef.current.value = "";
+                  if (fileRef.current) fileRef.current.value = "";
                 }}
                 className="flex items-center justify-center gap-1 px-4 py-2 bg-gray-200 rounded-md w-full sm:w-auto"
               >
                 <X size={18} /> Annulla
               </button>
             </div>
-
             <div className="mt-2 text-sm text-gray-500">
               Posizione attuale:{" "}
               {userPos
@@ -221,7 +260,6 @@ export default function App() {
                 : "Non disponibile (consenti geolocalizzazione)"}
             </div>
           </div>
-
           {/* Ricerca */}
           <div className="p-3 border rounded mb-3">
             <label className="block text-sm font-medium mb-1">
@@ -234,9 +272,6 @@ export default function App() {
                 className="flex-1 border p-2 rounded text-sm"
                 placeholder="Cerca nei commenti..."
               />
-              <button className="flex items-center gap-1 px-3 py-2 bg-blue-600 text-white rounded-md w-full sm:w-auto">
-                <Search size={16} /> Trova
-              </button>
               <button
                 onClick={() => setSearch("")}
                 className="flex items-center gap-1 px-3 py-2 bg-gray-300 rounded-md w-full sm:w-auto"
@@ -245,8 +280,7 @@ export default function App() {
               </button>
             </div>
           </div>
-
-          {/* Contenuto */}
+          {/* Lista / Mappa */}
           {view === "map" ? (
             <div className="h-96 border rounded overflow-hidden">
               <MapContainer
@@ -361,8 +395,13 @@ export default function App() {
           )}
         </div>
       </div>
-
-      {/* MENU FISSO */}
+      {/* Toast successo */}
+      {success && (
+        <div className="fixed bottom-14 left-1/2 -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-full shadow-lg text-sm animate-fade-in-out">
+          ✅ Segnalazione salvata con successo
+        </div>
+      )}
+      {/* MENU */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-inner flex justify-around py-2 sm:hidden z-50">
         <button
           onClick={() => setView("list")}
