@@ -19,7 +19,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
-const STORAGE_KEY = "construction_fault_reports_v5";
+const STORAGE_KEY = "construction_fault_reports_v6";
 const CANTIERI = [
   "A6",
   "Altamura",
@@ -81,6 +81,7 @@ export default function App() {
       return [];
     }
   });
+
   const [view, setView] = useState("list");
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
   const [selectedCantiere, setSelectedCantiere] = useState("Tutti");
@@ -89,6 +90,11 @@ export default function App() {
   const [tempPhotos, setTempPhotos] = useState([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(null);
+
   const commentRef = useRef();
 
   useEffect(() => {
@@ -120,7 +126,9 @@ export default function App() {
   }
 
   async function saveReport() {
+    if (isSaving) return;
     try {
+      setIsSaving(true);
       if (!tempPhotos.length)
         return setError("Aggiungi almeno una foto prima di salvare");
       setError("");
@@ -154,20 +162,32 @@ export default function App() {
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       setError("Errore durante il salvataggio: " + err.message);
+    } finally {
+      setIsSaving(false);
     }
   }
 
   function markCompleted(id) {
-    setReports((p) =>
-      p.map((r) =>
-        r.id === id ? { ...r, completed: true, completedAt: nowISO() } : r
-      )
-    );
+    if (isCompleting) return;
+    setIsCompleting(id);
+    setTimeout(() => {
+      setReports((prev) =>
+        prev.map((r) =>
+          r.id === id ? { ...r, completed: true, completedAt: nowISO() } : r
+        )
+      );
+      setIsCompleting(null);
+    }, 1000);
   }
 
   function deleteReport(id) {
+    if (isDeleting) return;
     if (!confirm("Eliminare la segnalazione?")) return;
-    setReports((p) => p.filter((r) => r.id !== id));
+    setIsDeleting(id);
+    setTimeout(() => {
+      setReports((prev) => prev.filter((r) => r.id !== id));
+      setIsDeleting(null);
+    }, 800);
   }
 
   function exportJSON() {
@@ -275,9 +295,14 @@ export default function App() {
 
               <button
                 onClick={saveReport}
-                className="px-4 py-2 bg-green-700 text-white rounded-md flex items-center gap-1"
+                disabled={isSaving}
+                className={`px-4 py-2 rounded-md flex items-center gap-1 text-white transition ${
+                  isSaving
+                    ? "bg-green-800 opacity-75 cursor-not-allowed"
+                    : "bg-green-700 hover:bg-green-800"
+                }`}
               >
-                💾 Salva segnalazione
+                {isSaving ? "⏳ Salvataggio..." : "💾 Salva segnalazione"}
               </button>
 
               <button
@@ -346,16 +371,30 @@ export default function App() {
                       {!r.completed && (
                         <button
                           onClick={() => markCompleted(r.id)}
-                          className="px-2 py-1 bg-green-600 text-white rounded text-xs"
+                          disabled={isCompleting === r.id}
+                          className={`px-2 py-1 rounded text-xs text-white transition ${
+                            isCompleting === r.id
+                              ? "bg-green-800 opacity-75 cursor-not-allowed"
+                              : "bg-green-600 hover:bg-green-700"
+                          }`}
                         >
-                          Completato
+                          {isCompleting === r.id
+                            ? "⏳ In completamento..."
+                            : "Completato"}
                         </button>
                       )}
                       <button
                         onClick={() => deleteReport(r.id)}
-                        className="px-2 py-1 bg-red-500 text-white rounded text-xs"
+                        disabled={isDeleting === r.id}
+                        className={`px-2 py-1 rounded text-xs text-white transition ${
+                          isDeleting === r.id
+                            ? "bg-red-800 opacity-75 cursor-not-allowed"
+                            : "bg-red-500 hover:bg-red-600"
+                        }`}
                       >
-                        Elimina
+                        {isDeleting === r.id
+                          ? "⏳ Eliminazione..."
+                          : "Elimina"}
                       </button>
                     </div>
                   </div>
@@ -402,7 +441,7 @@ export default function App() {
         </button>
         <button
           onClick={() => exportJSON()}
-          className={`flex flex-col items-center text-gray-500`}
+          className="flex flex-col items-center text-gray-500"
         >
           <Upload size={22} />
           <span className="text-xs">Esporta</span>
