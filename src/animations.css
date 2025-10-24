@@ -1,0 +1,23 @@
+/* animations.css - transizioni leggere e pressione pulsanti */
+.fade-enter {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.fade-enter-active {
+  opacity: 1;
+}
+.fade-exit {
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+.fade-exit-active {
+  opacity: 0;
+}
+
+.btn-press {
+  transition: transform 0.15s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+.btn-press:active {
+  transform: scale(0.97);
+  filter: brightness(0.95);
+}
