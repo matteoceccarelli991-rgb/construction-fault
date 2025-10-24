@@ -295,41 +295,84 @@ export default function App() {
     }
   }
 
-  async function exportPDF() {
-    try {
-      const jsPDF = (await import("jspdf")).default;
-      const autoTable = (await import("jspdf-autotable")).default;
-      const doc = new jsPDF({ unit: "pt", format: "a4" });
+async function exportPDF() {
+  try {
+    const jsPDF = (await import("jspdf")).default;
+    const autoTable = (await import("jspdf-autotable")).default;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-      const pool = getReportsForExport();
+    const pool = getReportsForExport();
 
-      doc.setFontSize(16);
-      doc.text("Construction Fault - Report", 40, 40);
-      doc.setFontSize(10);
-      doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
-      doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
+    doc.setFontSize(16);
+    doc.text("Construction Fault - Report", 40, 40);
+    doc.setFontSize(10);
+    doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
+    doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-      autoTable(doc, {
-        startY: 90,
-        styles: { fontSize: 9 },
-        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura"]],
-        body: pool.map((r) => [
-          r.cantiere,
-          r.comment || "",
-          formatDate(r.createdAt),
-          r.completed ? "Completata" : "Aperta",
-          r.closingComment || "",
-        ]),
-        theme: "grid",
-        margin: { left: 40, right: 40 },
-      });
+    autoTable(doc, {
+      startY: 90,
+      styles: { fontSize: 9 },
+      head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura"]],
+      body: pool.map((r) => [
+        r.cantiere,
+        r.comment || "",
+        formatDate(r.createdAt),
+        r.completed ? "Completata" : "Aperta",
+        r.closingComment || "",
+      ]),
+      theme: "grid",
+      margin: { left: 40, right: 40 },
+    });
 
-      doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
-    } catch (err) {
-      console.error(err);
-      alert("Per l'export PDF installa jspdf e jspdf-autotable");
+    let y = doc.lastAutoTable.finalY + 20;
+
+    for (const r of pool) {
+      if (y > 700) {
+        doc.addPage();
+        y = 40;
+      }
+
+      doc.setFontSize(12);
+      doc.text(`Cantiere: ${r.cantiere}`, 40, y);
+      y += 14;
+      doc.setFontSize(9);
+      doc.text(`Commento: ${r.comment}`, 40, y);
+      y += 12;
+
+      // Foto segnalazione
+      if (r.photos && r.photos.length > 0) {
+        for (const p of r.photos) {
+          if (y > 700) {
+            doc.addPage();
+            y = 40;
+          }
+          doc.addImage(p.dataUrl, "JPEG", 40, y, 100, 100);
+          y += 110;
+        }
+      }
+
+      // Foto chiusura
+      if (r.closingPhoto && r.closingPhoto.dataUrl) {
+        if (y > 700) {
+          doc.addPage();
+          y = 40;
+        }
+        doc.text("Foto di chiusura:", 40, y);
+        y += 10;
+        doc.addImage(r.closingPhoto.dataUrl, "JPEG", 40, y, 100, 100);
+        y += 120;
+      }
+
+      y += 20; // Spazio fra segnalazioni
     }
+
+    doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
+  } catch (err) {
+    console.error(err);
+    alert("Per l'export PDF installa jspdf e jspdf-autotable");
   }
+}
+
 
   // --- RETURN ---
   return (
