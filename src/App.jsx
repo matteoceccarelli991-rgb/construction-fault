@@ -4,7 +4,7 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
 
-const STORAGE_KEY = "construction_fault_reports_v14";
+const STORAGE_KEY = "construction_fault_reports_v15";
 const CANTIERI = [
   "A6", "Altamura", "Borgonovo", "Rovigo",
   "Serrotti EST", "Stomeo", "Stornarella", "Uta",
@@ -184,7 +184,7 @@ export default function App() {
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.0.2</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.0.3</p>
 
           {/* MAPPA */}
           {view === "map" && (
@@ -240,6 +240,7 @@ export default function App() {
           {/* LISTA */}
           {view === "list" && (
             <>
+              {/* FORM nuova segnalazione */}
               <div className="mb-3">
                 <label className="block font-medium mb-1">Cantiere</label>
                 <select
@@ -328,52 +329,122 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Segnalazioni */}
+              {/* SEGNALAZIONI ATTIVE */}
               {active.map((r) => (
                 <div key={r.id} className="border rounded p-3 mb-2 shadow-sm bg-gray-50">
-                  <strong>{r.cantiere}</strong>
-                  <p>{r.comment}</p>
-                  <small>{formatDate(r.createdAt)}</small>
-                  {/* FOTO NELLA CARD */}
-                  {r.photos && r.photos.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {r.photos.map((p, i) => (
-                        <img
-                          key={i}
-                          src={p.dataUrl}
-                          alt={p.name}
-                          className="w-24 h-24 object-cover rounded cursor-pointer"
-                          onClick={() => setModalImg(p.dataUrl)}
+                  {editingId === r.id ? (
+                    <>
+                      <div className="mb-2">
+                        <label className="block text-sm font-medium mb-1">Cantiere</label>
+                        <select
+                          value={editCantiere}
+                          onChange={(e) => setEditCantiere(e.target.value)}
+                          className="border rounded w-full p-1"
+                        >
+                          {CANTIERI.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mb-2">
+                        <label className="block text-sm font-medium mb-1">Commento</label>
+                        <textarea
+                          value={editComment}
+                          onChange={(e) => setEditComment(e.target.value)}
+                          className="border rounded w-full p-1"
                         />
-                      ))}
-                    </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveEdit(r.id)}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm"
+                        >
+                          Salva modifiche
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="bg-gray-300 text-black px-3 py-1 rounded text-sm"
+                        >
+                          Annulla
+                        </button>
+                      </div>
+                    </>
+                  ) : closingId === r.id ? (
+                    <>
+                      <label className="block text-sm font-medium mb-1">Commento di chiusura</label>
+                      <textarea
+                        value={closingComment}
+                        onChange={(e) => setClosingComment(e.target.value)}
+                        className="border rounded w-full p-1 mb-2"
+                        placeholder="Note sulla risoluzione..."
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveCompletion(r.id)}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm"
+                        >
+                          Salva chiusura
+                        </button>
+                        <button
+                          onClick={() => setClosingId(null)}
+                          className="bg-gray-300 text-black px-3 py-1 rounded text-sm"
+                        >
+                          Annulla
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <strong>{r.cantiere}</strong>
+                      <p>{r.comment}</p>
+                      <small>{formatDate(r.createdAt)}</small>
+                      {r.photos?.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {r.photos.map((p, i) => (
+                            <img
+                              key={i}
+                              src={p.dataUrl}
+                              alt={p.name}
+                              className="w-24 h-24 object-cover rounded cursor-pointer"
+                              onClick={() => setModalImg(p.dataUrl)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => {
+                            setEditingId(r.id);
+                            setEditComment(r.comment);
+                            setEditCantiere(r.cantiere);
+                          }}
+                          className="bg-blue-500 text-white px-3 py-1 rounded text-sm"
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          onClick={() => confirmComplete(r.id)}
+                          className="bg-green-500 text-white px-3 py-1 rounded text-sm"
+                        >
+                          Completato
+                        </button>
+                        <button
+                          onClick={() => deleteReport(r.id)}
+                          className="bg-red-500 text-white px-3 py-1 rounded text-sm"
+                        >
+                          Cancella
+                        </button>
+                      </div>
+                    </>
                   )}
-                  <div className="flex gap-2 mt-2">
-                    <button
-                      onClick={() => {
-                        setEditingId(r.id);
-                        setEditComment(r.comment);
-                        setEditCantiere(r.cantiere);
-                      }}
-                      className="bg-blue-500 text-white px-3 py-1 rounded text-sm"
-                    >
-                      Modifica
-                    </button>
-                    <button
-                      onClick={() => confirmComplete(r.id)}
-                      className="bg-green-500 text-white px-3 py-1 rounded text-sm"
-                    >
-                      Completato
-                    </button>
-                    <button
-                      onClick={() => deleteReport(r.id)}
-                      className="bg-red-500 text-white px-3 py-1 rounded text-sm"
-                    >
-                      Cancella
-                    </button>
-                  </div>
                 </div>
               ))}
+
+              {active.length === 0 && (
+                <p className="text-gray-500 text-center">
+                  Nessuna segnalazione attiva.
+                </p>
+              )}
             </>
           )}
 
