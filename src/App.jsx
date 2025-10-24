@@ -1,11 +1,12 @@
-// MC v6.2.1 UI Clean — Construction Fault
+// MC v6.2.3 UI Clean — Construction Fault
 // - UI tema chiaro (bg-gray-100, card bianche, navbar bianca)
 // - Mappa: satellite di default + toggle Satellite/Mappa + "📍 Centra"
 // - Lista: form nuova + miniature foto cliccabili + pulsanti Modifica / Completata / Cancella
+// - Chiusura: commento obbligatorio + controllo unico "Aggiungi foto di chiusura"
+//             con opzioni interne: Scatta (camera) e Galleria
 // - Completate: riepilogo + miniature + foto di chiusura se presente
-// - Export: sezione dedicata (Excel/PDF), per cantiere o tutti
-// - Foto: scatta/galleria con compressione > 2MB
-// - Chiusura: commento obbligatorio + foto opzionale (scatta/galleria)
+// - Export: sezione dedicata (Excel/PDF), per cantiere o tutti (rispetta filtro)
+// - PDF: include foto delle segnalazioni e foto di chiusura
 // Requisiti: react, react-dom, react-leaflet, leaflet, lucide-react, exceljs, jspdf, jspdf-autotable
 
 import React, { useState, useEffect, useRef } from "react";
@@ -13,8 +14,7 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
-// Se usi animazioni personalizzate per i pulsanti
-// import "./animations.css";
+// import "./animations.css"; // se usi animazioni personalizzate
 
 const STORAGE_KEY = "construction_fault_reports_v17";
 const CANTIERI = [
@@ -28,7 +28,7 @@ const nowISO = () => new Date().toISOString();
 const formatDate = (iso) => (iso ? new Date(iso).toLocaleString() : "-");
 
 export default function App() {
-  // Stato
+  // Stato base
   const [reports, setReports] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -39,7 +39,7 @@ export default function App() {
   });
   const [view, setView] = useState("list");
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
-  const [mapType, setMapType] = useState("satellite"); // v6.2.1: satellite di default
+  const [mapType, setMapType] = useState("satellite"); // satellite di default
   const [userPos, setUserPos] = useState(null);
   const [tempPhotos, setTempPhotos] = useState([]);
   const [search, setSearch] = useState("");
@@ -122,7 +122,7 @@ export default function App() {
     if (compressed > 0) alert(`${compressed} foto sono state compresse automaticamente.`);
   }
 
-  // Foto per chiusura (singola, facoltativa) — compressione leggera
+  // Foto chiusura: compressione leggera (single)
   async function handleClosingPhotoUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -156,7 +156,7 @@ export default function App() {
     setClosingTempPhoto({ dataUrl, name: file.name });
   }
 
-  // Salvataggio segnalazione
+  // Salva segnalazione
   function saveReport() {
     if (!tempPhotos.length) return alert("Aggiungi almeno una foto");
     const pos = userPos || defaultPos;
@@ -248,11 +248,11 @@ export default function App() {
     }
   }
 
-  // Helpers Export
+  // Helpers Export — rispetta SEMPRE il filtro exportCantiere
   function getReportsForExport() {
-    return exportCantiere === "Tutti"
-      ? reports
-      : reports.filter((r) => r.cantiere === exportCantiere);
+    return reports.filter(
+      (r) => exportCantiere === "Tutti" || r.cantiere === exportCantiere
+    );
   }
 
   async function exportExcel() {
@@ -295,84 +295,87 @@ export default function App() {
     }
   }
 
-async function exportPDF() {
-  try {
-    const jsPDF = (await import("jspdf")).default;
-    const autoTable = (await import("jspdf-autotable")).default;
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
+  async function exportPDF() {
+    try {
+      const jsPDF = (await import("jspdf")).default;
+      const autoTable = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-    const pool = getReportsForExport();
+      const pool = getReportsForExport();
 
-    doc.setFontSize(16);
-    doc.text("Construction Fault - Report", 40, 40);
-    doc.setFontSize(10);
-    doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
-    doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
+      doc.setFontSize(16);
+      doc.text("Construction Fault - Report", 40, 40);
+      doc.setFontSize(10);
+      doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
+      doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-    autoTable(doc, {
-      startY: 90,
-      styles: { fontSize: 9 },
-      head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura"]],
-      body: pool.map((r) => [
-        r.cantiere,
-        r.comment || "",
-        formatDate(r.createdAt),
-        r.completed ? "Completata" : "Aperta",
-        r.closingComment || "",
-      ]),
-      theme: "grid",
-      margin: { left: 40, right: 40 },
-    });
+      // Tabella riepilogo
+      autoTable(doc, {
+        startY: 90,
+        styles: { fontSize: 9 },
+        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura"]],
+        body: pool.map((r) => [
+          r.cantiere,
+          r.comment || "",
+          formatDate(r.createdAt),
+          r.completed ? "Completata" : "Aperta",
+          r.closingComment || "",
+        ]),
+        theme: "grid",
+        margin: { left: 40, right: 40 },
+      });
 
-    let y = doc.lastAutoTable.finalY + 20;
+      // Sezione immagini per ogni segnalazione
+      let y = doc.lastAutoTable.finalY + 20;
 
-    for (const r of pool) {
-      if (y > 700) {
-        doc.addPage();
-        y = 40;
-      }
+      const addImg = (dataUrl, x, w = 100, h = 100) => {
+        try { doc.addImage(dataUrl, "JPEG", x, y, w, h); }
+        catch { try { doc.addImage(dataUrl, "PNG", x, y, w, h); } catch {} }
+      };
 
-      doc.setFontSize(12);
-      doc.text(`Cantiere: ${r.cantiere}`, 40, y);
-      y += 14;
-      doc.setFontSize(9);
-      doc.text(`Commento: ${r.comment}`, 40, y);
-      y += 12;
+      for (const r of pool) {
+        if (y > 700) { doc.addPage(); y = 40; }
 
-      // Foto segnalazione
-      if (r.photos && r.photos.length > 0) {
-        for (const p of r.photos) {
-          if (y > 700) {
-            doc.addPage();
-            y = 40;
+        doc.setFontSize(12);
+        doc.text(`Cantiere: ${r.cantiere}`, 40, y);
+        y += 14;
+        doc.setFontSize(9);
+        doc.text(`Commento: ${r.comment || "-"}`, 40, y);
+        y += 12;
+
+        // Foto segnalazioni (tutte le foto caricate per la segnalazione)
+        if (r.photos && r.photos.length > 0) {
+          let x = 40;
+          for (const p of r.photos) {
+            if (y > 700) { doc.addPage(); y = 40; x = 40; }
+            addImg(p.dataUrl, x);
+            x += 112; // spazio orizzontale
+            if (x > 40 + 112 * 4) { // 5 foto per riga
+              x = 40;
+              y += 112;
+            }
           }
-          doc.addImage(p.dataUrl, "JPEG", 40, y, 100, 100);
-          y += 110;
+          y += 122;
         }
+
+        // Foto di chiusura (se esiste)
+        if (r.closingPhoto?.dataUrl) {
+          if (y > 700) { doc.addPage(); y = 40; }
+          doc.text("Foto di chiusura:", 40, y);
+          y += 10;
+          addImg(r.closingPhoto.dataUrl, 40, 120, 120);
+          y += 130;
+        }
+
+        y += 10; // Spazio fra segnalazioni
       }
 
-      // Foto chiusura
-      if (r.closingPhoto && r.closingPhoto.dataUrl) {
-        if (y > 700) {
-          doc.addPage();
-          y = 40;
-        }
-        doc.text("Foto di chiusura:", 40, y);
-        y += 10;
-        doc.addImage(r.closingPhoto.dataUrl, "JPEG", 40, y, 100, 100);
-        y += 120;
-      }
-
-      y += 20; // Spazio fra segnalazioni
+      doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
+    } catch (err) {
+      console.error(err);
+      alert("Per l'export PDF installa jspdf e jspdf-autotable");
     }
-
-    doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
-  } catch (err) {
-    console.error(err);
-    alert("Per l'export PDF installa jspdf e jspdf-autotable");
   }
-}
-
 
   // --- RETURN ---
   return (
@@ -380,7 +383,7 @@ async function exportPDF() {
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2.1 UI Clean</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2.3 UI Clean</p>
 
           {/* MAPPA */}
           {view === "map" && (
@@ -460,7 +463,7 @@ async function exportPDF() {
                 />
               </div>
 
-              {/* FOTO: Scatta & Galleria (separati) */}
+              {/* FOTO: Scatta & Galleria (separate, per la segnalazione) */}
               <div className="flex gap-2 mb-2">
                 <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1 btn-press">
                   📷 Scatta foto
@@ -485,7 +488,7 @@ async function exportPDF() {
                 </label>
               </div>
 
-              {/* Anteprima foto nuove (cliccabili per modale) */}
+              {/* Anteprima foto nuove */}
               {tempPhotos.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-4">
                   {tempPhotos.map((p, i) => (
@@ -578,13 +581,32 @@ async function exportPDF() {
                         className="border rounded w-full p-1 mb-2"
                         placeholder="Note sulla risoluzione..."
                       />
+
+                      {/* Controllo UNICO "Aggiungi foto di chiusura" con due opzioni interne */}
                       <div className="mb-2">
-                        <label className="block text-sm font-medium mb-1">Foto di chiusura (opzionale)</label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleClosingPhotoUpload}
-                        />
+                        <p className="text-sm font-medium mb-1">Aggiungi foto di chiusura</p>
+                        <div className="flex gap-2 flex-wrap">
+                          <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm btn-press">
+                            📷 Scatta
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={handleClosingPhotoUpload}
+                              className="hidden"
+                            />
+                          </label>
+                          <label className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer text-sm btn-press">
+                            🖼️ Galleria
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleClosingPhotoUpload}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+
                         {closingTempPhoto && (
                           <img
                             src={closingTempPhoto.dataUrl}
@@ -593,6 +615,7 @@ async function exportPDF() {
                           />
                         )}
                       </div>
+
                       <div className="flex gap-2">
                         <button
                           onClick={() => saveCompletion(r.id)}
@@ -734,7 +757,7 @@ async function exportPDF() {
             </div>
           )}
 
-          {/* ESPORTA (sezione dedicata) */}
+          {/* ESPORTA */}
           {view === "export" && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold mb-3 text-center">Esporta segnalazioni</h2>
