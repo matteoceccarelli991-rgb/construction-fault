@@ -1,9 +1,20 @@
-import "./animations.css";
+// MC v6.2.1 UI Clean — Construction Fault
+// - UI tema chiaro (bg-gray-100, card bianche, navbar bianca)
+// - Mappa: satellite di default + toggle Satellite/Mappa + "📍 Centra"
+// - Lista: form nuova + miniature foto cliccabili + pulsanti Modifica / Completata / Cancella
+// - Completate: riepilogo + miniature + foto di chiusura se presente
+// - Export: sezione dedicata (Excel/PDF), per cantiere o tutti
+// - Foto: scatta/galleria con compressione > 2MB
+// - Chiusura: commento obbligatorio + foto opzionale (scatta/galleria)
+// Requisiti: react, react-dom, react-leaflet, leaflet, lucide-react, exceljs, jspdf, jspdf-autotable
+
 import React, { useState, useEffect, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
+// Se usi animazioni personalizzate per i pulsanti
+// import "./animations.css";
 
 const STORAGE_KEY = "construction_fault_reports_v17";
 const CANTIERI = [
@@ -17,6 +28,7 @@ const nowISO = () => new Date().toISOString();
 const formatDate = (iso) => (iso ? new Date(iso).toLocaleString() : "-");
 
 export default function App() {
+  // Stato
   const [reports, setReports] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -27,24 +39,35 @@ export default function App() {
   });
   const [view, setView] = useState("list");
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
-  const [mapType, setMapType] = useState("road");
+  const [mapType, setMapType] = useState("satellite"); // v6.2.1: satellite di default
   const [userPos, setUserPos] = useState(null);
   const [tempPhotos, setTempPhotos] = useState([]);
   const [search, setSearch] = useState("");
   const [filterCantiere, setFilterCantiere] = useState("Tutti");
+
+  // Editing
   const [editingId, setEditingId] = useState(null);
   const [editComment, setEditComment] = useState("");
   const [editCantiere, setEditCantiere] = useState("");
+
+  // Chiusura
   const [closingId, setClosingId] = useState(null);
   const [closingComment, setClosingComment] = useState("");
   const [closingTempPhoto, setClosingTempPhoto] = useState(null);
+
+  // UI
   const [modalImg, setModalImg] = useState(null);
+
+  // Export
   const [exportCantiere, setExportCantiere] = useState("Tutti");
+
   const commentRef = useRef();
   const mapRef = useRef();
 
+  // Persistenza
   useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(reports)), [reports]);
 
+  // Geolocalizzazione
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -54,7 +77,7 @@ export default function App() {
     } else setUserPos(defaultPos);
   }, []);
 
-  // ---------- Foto compressione ----------
+  // ---------- Foto: compressione > 2MB ----------
   async function handlePhotoUpload(e) {
     const files = Array.from(e.target.files);
 
@@ -99,17 +122,41 @@ export default function App() {
     if (compressed > 0) alert(`${compressed} foto sono state compresse automaticamente.`);
   }
 
+  // Foto per chiusura (singola, facoltativa) — compressione leggera
   async function handleClosingPhotoUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     const dataUrl = await new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = (ev) => resolve(ev.target.result);
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX_WIDTH = 1200;
+          const scale = Math.min(1, MAX_WIDTH / img.width);
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const quality = file.size > 2 * 1024 * 1024 ? 0.7 : 0.9;
+          canvas.toBlob(
+            (blob) => {
+              const r2 = new FileReader();
+              r2.onload = (ev2) => resolve(ev2.target.result);
+              r2.readAsDataURL(blob);
+            },
+            "image/jpeg",
+            quality
+          );
+        };
+        img.src = ev.target.result;
+      };
       reader.readAsDataURL(file);
     });
     setClosingTempPhoto({ dataUrl, name: file.name });
   }
 
+  // Salvataggio segnalazione
   function saveReport() {
     if (!tempPhotos.length) return alert("Aggiungi almeno una foto");
     const pos = userPos || defaultPos;
@@ -130,6 +177,7 @@ export default function App() {
     if (commentRef.current) commentRef.current.value = "";
   }
 
+  // Modifica
   function saveEdit(id) {
     setReports((prev) =>
       prev.map((r) =>
@@ -139,6 +187,7 @@ export default function App() {
     setEditingId(null);
   }
 
+  // Chiusura
   function confirmComplete(id) {
     setClosingId(id);
     setClosingComment("");
@@ -167,11 +216,13 @@ export default function App() {
     setClosingTempPhoto(null);
   }
 
+  // Cancella
   function deleteReport(id) {
     if (confirm("Eliminare la segnalazione?"))
       setReports((prev) => prev.filter((r) => r.id !== id));
   }
 
+  // Filtri
   const filtered = reports
     .filter((r) => r.comment.toLowerCase().includes(search.toLowerCase()))
     .filter((r) => filterCantiere === "Tutti" || r.cantiere === filterCantiere);
@@ -179,6 +230,7 @@ export default function App() {
   const active = filtered.filter((r) => !r.completed);
   const completed = filtered.filter((r) => r.completed);
 
+  // Icone Leaflet
   const iconUser = L.icon({
     iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
     iconSize: [25, 41],
@@ -190,7 +242,13 @@ export default function App() {
       html: `<div style="background:${color};width:14px;height:14px;border-radius:50%;border:2px solid white"></div>`,
     });
 
-  // EXPORT
+  function centerMap() {
+    if (userPos && mapRef.current) {
+      mapRef.current.flyTo(userPos, 15, { animate: true, duration: 1.5 });
+    }
+  }
+
+  // Helpers Export
   function getReportsForExport() {
     return exportCantiere === "Tutti"
       ? reports
@@ -202,6 +260,7 @@ export default function App() {
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Segnalazioni");
+
       ws.columns = [
         { header: "Cantiere", key: "cantiere", width: 20 },
         { header: "Commento", key: "comment", width: 40 },
@@ -221,7 +280,7 @@ export default function App() {
           closingComment: r.closingComment || "",
         });
         ws.getRow(rowIndex).height = 80;
-        rowIndex++;
+        rowIndex += 1;
       });
 
       const buf = await wb.xlsx.writeBuffer();
@@ -231,6 +290,7 @@ export default function App() {
       a.download = `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.xlsx`;
       a.click();
     } catch (err) {
+      console.error(err);
       alert("Per l'export Excel installa le dipendenze: npm i exceljs");
     }
   }
@@ -240,6 +300,7 @@ export default function App() {
       const jsPDF = (await import("jspdf")).default;
       const autoTable = (await import("jspdf-autotable")).default;
       const doc = new jsPDF({ unit: "pt", format: "a4" });
+
       const pool = getReportsForExport();
 
       doc.setFontSize(16);
@@ -264,7 +325,8 @@ export default function App() {
       });
 
       doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
-    } catch {
+    } catch (err) {
+      console.error(err);
       alert("Per l'export PDF installa jspdf e jspdf-autotable");
     }
   }
@@ -274,6 +336,8 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-gray-100 text-gray-900">
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
+          <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2.1 UI Clean</p>
 
           {/* MAPPA */}
           {view === "map" && (
@@ -312,6 +376,19 @@ export default function App() {
                   )
                 )}
               </MapContainer>
+
+              {/* Controls mappa */}
+              <div className="absolute top-2 right-2 flex gap-2">
+                <button
+                  onClick={() => setMapType(mapType === "road" ? "satellite" : "road")}
+                  className="bg-white text-sm px-3 py-1 rounded shadow btn-press"
+                >
+                  Vista: {mapType === "road" ? "Mappa" : "Satellite"}
+                </button>
+                <button onClick={centerMap} className="bg-white text-sm px-3 py-1 rounded shadow btn-press">
+                  📍 Centra
+                </button>
+              </div>
             </div>
           )}
 
@@ -340,9 +417,9 @@ export default function App() {
                 />
               </div>
 
-              {/* FOTO */}
+              {/* FOTO: Scatta & Galleria (separati) */}
               <div className="flex gap-2 mb-2">
-                <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1">
+                <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1 btn-press">
                   📷 Scatta foto
                   <input
                     type="file"
@@ -353,7 +430,7 @@ export default function App() {
                     className="hidden"
                   />
                 </label>
-                <label className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1">
+                <label className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1 btn-press">
                   🖼️ Galleria
                   <input
                     type="file"
@@ -365,6 +442,7 @@ export default function App() {
                 </label>
               </div>
 
+              {/* Anteprima foto nuove (cliccabili per modale) */}
               {tempPhotos.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-4">
                   {tempPhotos.map((p, i) => (
@@ -381,7 +459,7 @@ export default function App() {
 
               <button
                 onClick={saveReport}
-                className="bg-green-600 text-white px-4 py-2 rounded mb-4"
+                className="bg-green-600 text-white px-4 py-2 rounded mb-4 btn-press"
               >
                 Salva segnalazione
               </button>
@@ -407,14 +485,140 @@ export default function App() {
                 </select>
               </div>
 
-              {/* Lista segnalazioni */}
+              {/* Segnalazioni attive */}
               {active.map((r) => (
                 <div key={r.id} className="border rounded p-3 mb-2 shadow-sm bg-gray-50">
-                  <strong>{r.cantiere}</strong>
-                  <p>{r.comment}</p>
-                  <small>{formatDate(r.createdAt)}</small>
+                  {/* Stati: editing / closing / default */}
+                  {editingId === r.id ? (
+                    <>
+                      <div className="mb-2">
+                        <label className="block text-sm font-medium mb-1">Cantiere</label>
+                        <select
+                          value={editCantiere}
+                          onChange={(e) => setEditCantiere(e.target.value)}
+                          className="border rounded w-full p-1"
+                        >
+                          {CANTIERI.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="mb-2">
+                        <label className="block text-sm font-medium mb-1">Commento</label>
+                        <textarea
+                          value={editComment}
+                          onChange={(e) => setEditComment(e.target.value)}
+                          className="border rounded w-full p-1"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveEdit(r.id)}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Salva modifiche
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="bg-gray-300 text-black px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Annulla
+                        </button>
+                      </div>
+                    </>
+                  ) : closingId === r.id ? (
+                    <>
+                      <label className="block text-sm font-medium mb-1">Commento di chiusura</label>
+                      <textarea
+                        value={closingComment}
+                        onChange={(e) => setClosingComment(e.target.value)}
+                        className="border rounded w-full p-1 mb-2"
+                        placeholder="Note sulla risoluzione..."
+                      />
+                      <div className="mb-2">
+                        <label className="block text-sm font-medium mb-1">Foto di chiusura (opzionale)</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleClosingPhotoUpload}
+                        />
+                        {closingTempPhoto && (
+                          <img
+                            src={closingTempPhoto.dataUrl}
+                            alt="closing"
+                            className="w-24 h-24 object-cover rounded border mt-2"
+                          />
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => saveCompletion(r.id)}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Salva chiusura
+                        </button>
+                        <button
+                          onClick={() => { setClosingId(null); setClosingTempPhoto(null); }}
+                          className="bg-gray-300 text-black px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Annulla
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <strong>{r.cantiere}</strong>
+                          <p className="whitespace-pre-wrap">{r.comment}</p>
+                          <small className="text-gray-500">{formatDate(r.createdAt)}</small>
+                        </div>
+                      </div>
+
+                      {/* Miniature foto cliccabili */}
+                      {r.photos?.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {r.photos.map((p, i) => (
+                            <img
+                              key={i}
+                              src={p.dataUrl}
+                              alt={p.name}
+                              className="w-24 h-24 object-cover rounded cursor-pointer"
+                              onClick={() => setModalImg(p.dataUrl)}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => {
+                            setEditingId(r.id);
+                            setEditComment(r.comment);
+                            setEditCantiere(r.cantiere);
+                          }}
+                          className="bg-blue-500 text-white px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          onClick={() => confirmComplete(r.id)}
+                          className="bg-green-500 text-white px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Completata
+                        </button>
+                        <button
+                          onClick={() => deleteReport(r.id)}
+                          className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
+                        >
+                          Cancella
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
+
               {active.length === 0 && (
                 <p className="text-gray-500 text-center">Nessuna segnalazione attiva.</p>
               )}
@@ -432,14 +636,62 @@ export default function App() {
                   <div key={r.id} className="border rounded p-3 mb-2 bg-green-50 shadow-sm">
                     <strong>{r.cantiere}</strong>
                     <p>{r.comment}</p>
-                    <small>{formatDate(r.createdAt)}</small>
+                    <small className="text-gray-600">{formatDate(r.createdAt)}</small>
+
+                    {/* Miniature foto */}
+                    {r.photos?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {r.photos.map((p, i) => (
+                          <img
+                            key={i}
+                            src={p.dataUrl}
+                            alt={p.name}
+                            className="w-24 h-24 object-cover rounded cursor-pointer"
+                            onClick={() => setModalImg(p.dataUrl)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Info chiusura */}
+                    <p className="mt-2 text-sm text-green-700">
+                      <strong>Chiusura:</strong> {r.closingComment}
+                    </p>
+                    <small className="text-gray-600">Completato il: {formatDate(r.completedAt)}</small>
+
+                    {/* Foto di chiusura */}
+                    {r.closingPhoto?.dataUrl && (
+                      <div className="mt-2">
+                        <p className="text-sm font-medium">Foto di chiusura:</p>
+                        <img
+                          src={r.closingPhoto.dataUrl}
+                          alt="closing"
+                          className="w-32 h-32 object-cover rounded cursor-pointer"
+                          onClick={() => setModalImg(r.closingPhoto.dataUrl)}
+                        />
+                      </div>
+                    )}
                   </div>
                 ))
               )}
             </>
           )}
 
-          {/* ESPORTA */}
+          {/* MODAL FOTO */}
+          {modalImg && (
+            <div
+              className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+              onClick={() => setModalImg(null)}
+            >
+              <img
+                src={modalImg}
+                alt="preview"
+                className="max-h-[90%] max-w-[90%] rounded-lg shadow-lg"
+              />
+            </div>
+          )}
+
+          {/* ESPORTA (sezione dedicata) */}
           {view === "export" && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold mb-3 text-center">Esporta segnalazioni</h2>
@@ -454,10 +706,10 @@ export default function App() {
                 ))}
               </select>
               <div className="flex gap-2 justify-center">
-                <button onClick={exportExcel} className="bg-green-600 text-white px-4 py-2 rounded">
+                <button onClick={exportExcel} className="bg-green-600 text-white px-4 py-2 rounded btn-press">
                   Excel (.xlsx)
                 </button>
-                <button onClick={exportPDF} className="bg-red-600 text-white px-4 py-2 rounded">
+                <button onClick={exportPDF} className="bg-red-600 text-white px-4 py-2 rounded btn-press">
                   PDF (.pdf)
                 </button>
               </div>
@@ -468,19 +720,31 @@ export default function App() {
 
       {/* NAVBAR */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-inner flex justify-around py-2 z-50">
-        <button onClick={() => setView("list")} className={`flex flex-col items-center ${view === "list" ? "text-green-600" : "text-gray-500"}`}>
+        <button
+          onClick={() => setView("list")}
+          className={`flex flex-col items-center ${view === "list" ? "text-green-600" : "text-gray-500"}`}
+        >
           <ClipboardList size={22} />
           <span className="text-xs">Lista</span>
         </button>
-        <button onClick={() => setView("map")} className={`flex flex-col items-center ${view === "map" ? "text-green-600" : "text-gray-500"}`}>
+        <button
+          onClick={() => setView("map")}
+          className={`flex flex-col items-center ${view === "map" ? "text-green-600" : "text-gray-500"}`}
+        >
           <MapIcon size={22} />
           <span className="text-xs">Mappa</span>
         </button>
-        <button onClick={() => setView("completed")} className={`flex flex-col items-center ${view === "completed" ? "text-green-600" : "text-gray-500"}`}>
+        <button
+          onClick={() => setView("completed")}
+          className={`flex flex-col items-center ${view === "completed" ? "text-green-600" : "text-gray-500"}`}
+        >
           <CheckCircle size={22} />
           <span className="text-xs">Completate</span>
         </button>
-        <button onClick={() => setView("export")} className={`flex flex-col items-center ${view === "export" ? "text-green-600" : "text-gray-500"}`}>
+        <button
+          onClick={() => setView("export")}
+          className={`flex flex-col items-center ${view === "export" ? "text-green-600" : "text-gray-500"}`}
+        >
           <Upload size={22} />
           <span className="text-xs">Esporta</span>
         </button>
