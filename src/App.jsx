@@ -3,18 +3,8 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
-import "./animations.css";
 
-/* --- Construction Fault App MC v6.2 UI Clean ---
- * - Tema chiaro (bg grigio chiaro, card bianche, ombre morbide)
- * - Navigazione: Lista | Mappa | Completate | Esporta (nuova sezione)
- * - Export JSON rimosso: ora solo Excel/PDF nella sezione dedicata
- * - Vista mappa di default: Satellite (Esri World Imagery)
- * - Tutta la logica di v6.1 mantenuta: foto, compressione, modifica, chiusura con foto, ecc.
- * - Dipendenze per export: exceljs, jspdf, jspdf-autotable
- */
-
-const STORAGE_KEY = "construction_fault_reports_v18";
+const STORAGE_KEY = "construction_fault_reports_v16";
 const CANTIERI = [
   "A6", "Altamura", "Borgonovo", "Rovigo",
   "Serrotti EST", "Stomeo", "Stornarella", "Uta",
@@ -34,9 +24,9 @@ export default function App() {
       return [];
     }
   });
-  const [view, setView] = useState("list"); // list | map | completed | export
+  const [view, setView] = useState("list");
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
-  const [mapType, setMapType] = useState("satellite"); // default satellite
+  const [mapType, setMapType] = useState("road");
   const [userPos, setUserPos] = useState(null);
   const [tempPhotos, setTempPhotos] = useState([]);
   const [search, setSearch] = useState("");
@@ -63,7 +53,7 @@ export default function App() {
     } else setUserPos(defaultPos);
   }, []);
 
-  // ---------- Foto: compressione > 2MB ----------
+  // compressione immagini >2MB
   async function handlePhotoUpload(e) {
     const files = Array.from(e.target.files);
 
@@ -75,9 +65,9 @@ export default function App() {
           img.onload = () => {
             const canvas = document.createElement("canvas");
             const MAX_WIDTH = 1600;
-            const scale = Math.min(1, MAX_WIDTH / img.width);
-            canvas.width = Math.round(img.width * scale);
-            canvas.height = Math.round(img.height * scale);
+            const scale = MAX_WIDTH / img.width;
+            canvas.width = MAX_WIDTH;
+            canvas.height = img.height * scale;
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
             const quality = file.size > 2 * 1024 * 1024 ? 0.7 : 0.9;
@@ -229,164 +219,18 @@ export default function App() {
     }
   }
 
-  // ------------- EXPORT HELPERS -------------
-  function getReportsForExport() {
-    const pool =
-      exportCantiere === "Tutti"
-        ? reports
-        : reports.filter((r) => r.cantiere === exportCantiere);
-    return pool;
-  }
-
-  async function exportExcel() {
-    try {
-      const ExcelJS = (await import("exceljs")).default;
-      const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet("Segnalazioni");
-
-      ws.columns = [
-        { header: "Cantiere", key: "cantiere", width: 20 },
-        { header: "Commento", key: "comment", width: 40 },
-        { header: "Creato il", key: "createdAt", width: 20 },
-        { header: "Stato", key: "stato", width: 12 },
-        { header: "Chiusura", key: "closingComment", width: 40 },
-      ];
-
-      const pool = getReportsForExport();
-      let rowIndex = 2;
-      pool.forEach((r) => {
-        const stato = r.completed ? "Completata" : "Aperta";
-        ws.addRow({
-          cantiere: r.cantiere,
-          comment: r.comment,
-          createdAt: formatDate(r.createdAt),
-          stato,
-          closingComment: r.closingComment || "",
-        });
-
-        if (r.photos && r.photos[0]?.dataUrl) {
-          const imgId = wb.addImage({
-            base64: r.photos[0].dataUrl,
-            extension: "jpeg",
-          });
-          ws.addImage(imgId, {
-            tl: { col: 5.2, row: rowIndex - 1 + 0.1 },
-            ext: { width: 120, height: 90 },
-            editAs: "oneCell",
-          });
-        }
-
-        if (r.closingPhoto?.dataUrl) {
-          const imgId2 = wb.addImage({
-            base64: r.closingPhoto.dataUrl,
-            extension: "jpeg",
-          });
-          ws.addImage(imgId2, {
-            tl: { col: 7.2, row: rowIndex - 1 + 0.1 },
-            ext: { width: 120, height: 90 },
-            editAs: "oneCell",
-          });
-        }
-
-        ws.getRow(rowIndex).height = 80;
-        rowIndex += 1;
-      });
-
-      const buf = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.xlsx`;
-      a.click();
-    } catch (err) {
-      console.error(err);
-      alert("Errore export Excel (assicurati di avere installato exceljs).");
-    }
-  }
-
-  async function exportPDF() {
-    try {
-      const jsPDF = (await import("jspdf")).default;
-      const autoTable = (await import("jspdf-autotable")).default;
-      const doc = new jsPDF({ unit: "pt", format: "a4" });
-
-      const pool = getReportsForExport();
-
-      doc.setFontSize(16);
-      doc.text("Construction Fault - Report", 40, 40);
-      doc.setFontSize(10);
-      doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
-      doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
-
-      let y = 90;
-
-      for (let i = 0; i < pool.length; i++) {
-        const r = pool[i];
-
-        autoTable(doc, {
-          startY: y,
-          styles: { fontSize: 9 },
-          head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura"]],
-          body: [[
-            r.cantiere,
-            r.comment || "",
-            formatDate(r.createdAt),
-            r.completed ? "Completata" : "Aperta",
-            r.closingComment || ""
-          ]],
-          theme: "grid",
-          margin: { left: 40, right: 40 },
-          tableWidth: "auto",
-        });
-
-        y = doc.lastAutoTable.finalY + 8;
-
-        const maxW = 220;
-        const maxH = 160;
-
-        const addImg = (dataUrl, x) => {
-          if (!dataUrl) return;
-          try {
-            doc.addImage(dataUrl, "JPEG", x, y, maxW, maxH);
-          } catch (e) {
-            try { doc.addImage(dataUrl, "PNG", x, y, maxW, maxH); } catch {}
-          }
-        };
-
-        const firstPhoto = r.photos?.[0]?.dataUrl || null;
-        const closing = r.closingPhoto?.dataUrl || null;
-
-        if (firstPhoto || closing) {
-          addImg(firstPhoto, 40);
-          if (closing) addImg(closing, 40 + maxW + 12);
-          y += maxH + 16;
-        }
-
-        if (y > 730 && i < pool.length - 1) {
-          doc.addPage();
-          y = 40;
-        }
-      }
-
-      doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
-    } catch (err) {
-      console.error(err);
-      alert("Errore export PDF (assicurati di avere installato jspdf e jspdf-autotable).");
-    }
-  }
-
-  return (
-    <div className="min-h-screen flex flex-col bg-gray-100 text-gray-900">
+  return 
+    <div className="min-h-screen flex flex-col bg-green-600 text-gray-900">
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2 (tema chiaro)</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.0.4</p>
 
           {/* MAPPA */}
-          {view === "map" and (
+          {view === "map" && (
             <div className="h-96 border rounded overflow-hidden mb-3 relative">
               <MapContainer
-                center={userPos or defaultPos}
+                center={userPos || defaultPos}
                 zoom={6}
                 whenCreated={(m) => (mapRef.current = m)}
                 style={{ width: "100%", height: "100%" }}
@@ -398,10 +242,10 @@ export default function App() {
                       : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                   }
                 />
-                {userPos and <Marker position={userPos} icon={iconUser} />}
+                {userPos && <Marker position={userPos} icon={iconUser} />}
                 {reports.flatMap((r) =>
                   r.photos.map((p, i) =>
-                    p.lat and p.lng ? (
+                    p.lat && p.lng ? (
                       <Marker
                         key={r.id + i}
                         position={{ lat: p.lat, lng: p.lng }}
@@ -422,11 +266,11 @@ export default function App() {
               <div className="absolute top-2 right-2 flex gap-2">
                 <button
                   onClick={() => setMapType(mapType === "road" ? "satellite" : "road")}
-                  className="bg-white text-sm px-3 py-1 rounded shadow btn-press"
+                  className="bg-white text-sm px-3 py-1 rounded shadow"
                 >
                   Vista: {mapType === "road" ? "Mappa" : "Satellite"}
                 </button>
-                <button onClick={centerMap} className="bg-white text-sm px-3 py-1 rounded shadow btn-press">
+                <button onClick={centerMap} className="bg-white text-sm px-3 py-1 rounded shadow">
                   📍 Centra
                 </button>
               </div>
@@ -436,6 +280,7 @@ export default function App() {
           {/* LISTA */}
           {view === "list" && (
             <>
+              {/* Form nuova segnalazione */}
               <div className="mb-3">
                 <label className="block font-medium mb-1">Cantiere</label>
                 <select
@@ -483,7 +328,7 @@ export default function App() {
               </div>
 
               {/* Anteprima foto */}
-              {tempPhotos.length > 0 and (
+              {tempPhotos.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-4">
                   {tempPhotos.map((p, i) => (
                     <img
@@ -576,7 +421,7 @@ export default function App() {
                       <div className="mb-2">
                         <label className="block text-sm font-medium mb-1">Foto di chiusura (opzionale)</label>
                         <input type="file" accept="image/*" onChange={handleClosingPhotoUpload} />
-                        {closingTempPhoto and (
+                        {closingTempPhoto && (
                           <img
                             src={closingTempPhoto.dataUrl}
                             alt="closing"
@@ -604,7 +449,7 @@ export default function App() {
                       <strong>{r.cantiere}</strong>
                       <p>{r.comment}</p>
                       <small>{formatDate(r.createdAt)}</small>
-                      {r.photos?.length > 0 and (
+                      {r.photos?.length > 0 && (
                         <div className="flex flex-wrap gap-2 mt-2">
                           {r.photos.map((p, i) => (
                             <img
@@ -646,7 +491,7 @@ export default function App() {
                 </div>
               ))}
 
-              {active.length === 0 and (
+              {active.length === 0 && (
                 <p className="text-gray-500 text-center">Nessuna segnalazione attiva.</p>
               )}
             </>
@@ -668,7 +513,7 @@ export default function App() {
                       <strong>Chiusura:</strong> {r.closingComment}
                     </p>
                     <small>Completato il: {formatDate(r.completedAt)}</small>
-                    {r.photos?.length > 0 and (
+                    {r.photos?.length > 0 && (
                       <div className="flex flex-wrap gap-2 mt-2">
                         {r.photos.map((p, i) => (
                           <img
@@ -681,7 +526,7 @@ export default function App() {
                         ))}
                       </div>
                     )}
-                    {r.closingPhoto?.dataUrl and (
+                    {r.closingPhoto?.dataUrl && (
                       <div className="mt-2">
                         <p className="text-sm font-medium">Foto di chiusura:</p>
                         <img
@@ -724,7 +569,7 @@ export default function App() {
           )}
 
           {/* MODAL FOTO */}
-          {modalImg and (
+          {modalImg && (
             <div
               className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 fade-enter"
               onClick={() => setModalImg(null)}
