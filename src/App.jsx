@@ -4,11 +4,11 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
 
-const STORAGE_KEY = "construction_fault_reports_v13";
+const STORAGE_KEY = "construction_fault_reports_v14";
 const CANTIERI = [
   "A6", "Altamura", "Borgonovo", "Rovigo",
   "Serrotti EST", "Stomeo", "Stornarella", "Uta",
-  "Villacidro 1", "Villacidro 2","Sabaudia"
+  "Villacidro 1", "Villacidro 2"
 ];
 const defaultPos = { lat: 41.8719, lng: 12.5674 };
 
@@ -91,7 +91,7 @@ export default function App() {
     }
 
     const results = await Promise.all(files.map((f) => compressImage(f)));
-    setTempPhotos(results);
+    setTempPhotos((prev) => [...prev, ...results]);
 
     const compressed = results.filter((r) => r.compressed).length;
     if (compressed > 0) alert(`${compressed} foto sono state compresse automaticamente.`);
@@ -184,7 +184,7 @@ export default function App() {
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.0.1</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.0.2</p>
 
           {/* MAPPA */}
           {view === "map" && (
@@ -260,13 +260,32 @@ export default function App() {
                   placeholder="Descrivi il problema..."
                 />
               </div>
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handlePhotoUpload}
-                className="mb-2"
-              />
+
+              {/* FOTO */}
+              <div className="flex gap-2 mb-2">
+                <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1">
+                  📷 Scatta foto
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                  />
+                </label>
+                <label className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer text-sm text-center flex-1">
+                  🖼️ Galleria
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
               {/* Anteprima foto */}
               {tempPhotos.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-4">
