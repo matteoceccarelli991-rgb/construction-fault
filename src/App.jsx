@@ -1,12 +1,11 @@
-// MC v6.2.3 UI Clean — Construction Fault
+// MC v6.3.0 UI Clean — Construction Fault
 // - UI tema chiaro (bg-gray-100, card bianche, navbar bianca)
 // - Mappa: satellite di default + toggle Satellite/Mappa + "📍 Centra"
 // - Lista: form nuova + miniature foto cliccabili + pulsanti Modifica / Completata / Cancella
 // - Chiusura: commento obbligatorio + controllo unico "Aggiungi foto di chiusura"
-//             con opzioni interne: Scatta (camera) e Galleria
-// - Completate: riepilogo + miniature + foto di chiusura se presente
-// - Export: sezione dedicata (Excel/PDF), per cantiere o tutti (rispetta filtro)
-// - PDF: include foto delle segnalazioni e foto di chiusura
+// - Completate: riepilogo + miniature + foto di chiusura se presente + Elimina + Modifica + Riapri
+// - Export: filtro per cantiere + filtro per stato (Tutti / Aperte / Completate)
+// - PDF: banner verde riepilogo + mini-banner per segnalazione con foto (verde=complete, arancione=aperte) + separatori
 // Requisiti: react, react-dom, react-leaflet, leaflet, lucide-react, exceljs, jspdf, jspdf-autotable
 
 import React, { useState, useEffect, useRef } from "react";
@@ -14,7 +13,6 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
-// import "./animations.css"; // se usi animazioni personalizzate
 
 const STORAGE_KEY = "construction_fault_reports_v17";
 const CANTIERI = [
@@ -44,12 +42,20 @@ export default function App() {
   const [tempPhotos, setTempPhotos] = useState([]);
   const [search, setSearch] = useState("");
   const [filterCantiere, setFilterCantiere] = useState("Tutti");
+
+  // Export
+  const [exportCantiere, setExportCantiere] = useState("Tutti");
   const [exportStato, setExportStato] = useState("Tutti");
 
   // Editing
   const [editingId, setEditingId] = useState(null);
   const [editComment, setEditComment] = useState("");
   const [editCantiere, setEditCantiere] = useState("");
+
+  // Completate - editing & riapertura
+  const [editingCompletedId, setEditingCompletedId] = useState(null);
+  const [editClosingComment, setEditClosingComment] = useState("");
+  const [editClosingNewPhotos, setEditClosingNewPhotos] = useState([]);
 
   // Chiusura
   const [closingId, setClosingId] = useState(null);
@@ -58,9 +64,6 @@ export default function App() {
 
   // UI
   const [modalImg, setModalImg] = useState(null);
-
-  // Export
-  const [exportCantiere, setExportCantiere] = useState("Tutti");
 
   const commentRef = useRef();
   const mapRef = useRef();
@@ -170,7 +173,8 @@ export default function App() {
       completed: false,
       completedAt: null,
       closingComment: "",
-      closingPhoto: null,
+      closingPhoto: null,           // legacy (singola)
+      closingPhotos: [],            // nuovo (multiplo)
       photos: tempPhotos.map((p) => ({ ...p, timestamp, lat: pos.lat, lng: pos.lng })),
     };
     setReports((prev) => [newReport, ...prev]);
@@ -208,13 +212,94 @@ export default function App() {
               completed: true,
               completedAt: nowISO(),
               closingComment: closingComment.trim(),
-              closingPhoto: closingTempPhoto ? { ...closingTempPhoto } : null,
+              closingPhotos: closingTempPhoto ? [ { ...closingTempPhoto } ] : (r.closingPhotos || []),
+              closingPhoto: null,
             }
           : r
       )
     );
     setClosingId(null);
     setClosingTempPhoto(null);
+  }
+
+  // Completate: avvia editing
+  function startEditCompleted(r) {
+    setEditingCompletedId(r.id);
+    setEditClosingComment(r.closingComment || "");
+    setEditClosingNewPhotos([]);
+  }
+
+  // Upload foto aggiuntive in editing completate (multi)
+  async function handleEditCompletedPhotosUpload(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const results = await Promise.all(files.map(async (file) => {
+      const dataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const MAX_WIDTH = 1200;
+            const scale = Math.min(1, MAX_WIDTH / img.width);
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob((blob) => {
+              const r2 = new FileReader();
+              r2.onload = () => resolve(r2.result);
+              r2.readAsDataURL(blob);
+            }, "image/jpeg", 0.85);
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+      return { dataUrl, name: file.name };
+    }));
+
+    setEditClosingNewPhotos((prev) => [...prev, ...results]);
+  }
+
+  // Salva modifiche su segnalazione completata
+  function saveEditCompleted(id) {
+    setReports((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const legacy = r.closingPhoto ? [r.closingPhoto] : [];
+        const existing = r.closingPhotos ? [...r.closingPhotos] : [];
+        const merged = [...legacy, ...existing, ...editClosingNewPhotos];
+        return {
+          ...r,
+          closingComment: (editClosingComment || "").trim(),
+          closingPhotos: merged,
+          closingPhoto: null,
+        };
+      })
+    );
+    setEditingCompletedId(null);
+    setEditClosingNewPhotos([]);
+    setEditClosingComment("");
+  }
+
+  // Riapri segnalazione completata
+  function reopenReport(id) {
+    setReports((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              completed: false,
+              completedAt: null,
+              closingComment: "",
+              closingPhoto: null,
+              closingPhotos: [],
+            }
+          : r
+      )
+    );
   }
 
   // Cancella
@@ -249,11 +334,16 @@ export default function App() {
     }
   }
 
-  // Helpers Export — rispetta SEMPRE il filtro exportCantiere
+  // Helpers Export — applica filtro cantiere + stato
   function getReportsForExport() {
-    return reports.filter(
-      (r) => exportCantiere === "Tutti" || r.cantiere === exportCantiere
-    );
+    return reports.filter((r) => {
+      const matchCantiere = exportCantiere === "Tutti" || r.cantiere === exportCantiere;
+      const matchStato =
+        exportStato === "Tutti" ||
+        (exportStato === "Aperte" && !r.completed) ||
+        (exportStato === "Completate" && r.completed);
+      return matchCantiere && matchStato;
+    });
   }
 
   async function exportExcel() {
@@ -288,7 +378,7 @@ export default function App() {
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.xlsx`;
+      a.download = `export_${exportCantiere}_${exportStato}.xlsx`;
       a.click();
     } catch (err) {
       console.error(err);
@@ -296,134 +386,149 @@ export default function App() {
     }
   }
 
- async function exportPDF() {
-  try {
-    const jsPDF = (await import("jspdf")).default;
-    const autoTable = (await import("jspdf-autotable")).default;
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
+  async function exportPDF() {
+    try {
+      const jsPDF = (await import("jspdf")).default;
+      const autoTable = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-    const pool = getReportsForExport();
+      const pool = getReportsForExport();
 
-    // --- HEADER PRINCIPALE ---
-    doc.setFontSize(16);
-    doc.text("Construction Fault - Report", 40, 40);
-    doc.setFontSize(10);
-    doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
-    doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
+      // --- HEADER PRINCIPALE ---
+      doc.setFontSize(16);
+      doc.text("Construction Fault - Report", 40, 40);
+      doc.setFontSize(10);
+      doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
+      doc.text(`Stato: ${exportStato}`, 200, 58);
+      doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-    // --- TABELLA RIEPILOGATIVA (BANNER VERDE) ---
-    autoTable(doc, {
-      startY: 90,
-      styles: { fontSize: 9 },
-      headStyles: {
-        fillColor: [46, 204, 113],
-        textColor: [255, 255, 255],
-      },
-      head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
-      body: pool.map((r) => [
-        r.cantiere,
-        r.comment || "",
-        formatDate(r.createdAt),
-        r.completed ? "Completata" : "Aperta",
-        r.closingComment || "",
-        r.completedAt ? formatDate(r.completedAt) : "-",
-      ]),
-      theme: "grid",
-      margin: { left: 40, right: 40 },
-    });
+      // --- TABELLA RIEPILOGATIVA (BANNER VERDE) ---
+      autoTable(doc, {
+        startY: 90,
+        styles: { fontSize: 9 },
+        headStyles: {
+          fillColor: [46, 204, 113],
+          textColor: [255, 255, 255],
+        },
+        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
+        body: pool.map((r) => [
+          r.cantiere,
+          r.comment || "",
+          formatDate(r.createdAt),
+          r.completed ? "Completata" : "Aperta",
+          r.closingComment || "",
+          r.completedAt ? formatDate(r.completedAt) : "-",
+        ]),
+        theme: "grid",
+        margin: { left: 40, right: 40 },
+      });
 
-    // --- BLOCCO SINGOLE SEGNALAZIONI ---
-    let y = doc.lastAutoTable.finalY + 30;
+      // --- BLOCCO SINGOLE SEGNALAZIONI ---
+      let y = doc.lastAutoTable.finalY + 30;
 
-    const addImg = (dataUrl, x, w = 100, h = 100) => {
-      try {
-        doc.addImage(dataUrl, "JPEG", x, y, w, h);
-      } catch {
+      const addImg = (dataUrl, x, w = 100, h = 100) => {
         try {
-          doc.addImage(dataUrl, "PNG", x, y, w, h);
-        } catch {}
-      }
-    };
-
-    for (const r of pool) {
-      if (y > 700) {
-        doc.addPage();
-        y = 60;
-      }
-
-      // --- MINI BANNER VERDE per la segnalazione ---
-      const bannerColor = r.completed ? [34, 197, 94] : [249, 115, 22]; // verde o arancione
-      doc.setFillColor(...bannerColor);
-      doc.rect(40, y, 515, 24, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(11);
-      doc.text(`${r.cantiere} — ${r.comment || "-"}`, 50, y + 16);
-
-      // reset testo nero
-      doc.setTextColor(0, 0, 0);
-      y += 36;
-
-      doc.setFontSize(9);
-      doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
-      y += 12;
-      doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
-      y += 12;
-      if (r.completedAt) doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
-      y += 12;
-      if (r.closingComment)
-        doc.text(`Chiusura: ${r.closingComment}`, 40, y);
-      y += 16;
-
-      // --- Foto segnalazione ---
-      if (r.photos?.length > 0) {
-        doc.setFontSize(9);
-        doc.text("Foto segnalazione:", 40, y);
-        y += 8;
-        let x = 40;
-        for (const p of r.photos) {
-          if (y > 700) {
-            doc.addPage();
-            y = 60;
-            x = 40;
-          }
-          addImg(p.dataUrl, x);
-          x += 112;
-          if (x > 40 + 112 * 4) {
-            x = 40;
-            y += 112;
-          }
+          doc.addImage(dataUrl, "JPEG", x, y, w, h);
+        } catch {
+          try {
+            doc.addImage(dataUrl, "PNG", x, y, w, h);
+          } catch {}
         }
-        y += 122;
-      }
+      };
 
-      // --- Foto di chiusura ---
-      if (r.closingPhoto?.dataUrl) {
+      for (const r of pool) {
         if (y > 700) {
           doc.addPage();
           y = 60;
         }
-        doc.text("Foto di chiusura:", 40, y);
-        y += 10;
-        addImg(r.closingPhoto.dataUrl, 40, 120, 120);
-        y += 130;
+
+        // --- MINI BANNER COLORATO per la segnalazione ---
+        const bannerColor = r.completed ? [34, 197, 94] : [249, 115, 22]; // verde / arancione
+        doc.setFillColor(...bannerColor);
+        doc.rect(40, y, 515, 24, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(11);
+        doc.text(`${r.cantiere} — ${r.comment || "-"}`, 50, y + 16);
+
+        // reset testo nero
+        doc.setTextColor(0, 0, 0);
+        y += 36;
+
+        doc.setFontSize(9);
+        doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
+        y += 12;
+        doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
+        y += 12;
+        if (r.completedAt) doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
+        y += 12;
+        if (r.closingComment)
+          doc.text(`Chiusura: ${r.closingComment}`, 40, y);
+        y += 16;
+
+        // --- Foto segnalazione ---
+        if (r.photos?.length > 0) {
+          doc.setFontSize(9);
+          doc.text("Foto segnalazione:", 40, y);
+          y += 8;
+          let x = 40;
+          for (const p of r.photos) {
+            if (y > 700) {
+              doc.addPage();
+              y = 60;
+              x = 40;
+            }
+            addImg(p.dataUrl, x);
+            x += 112;
+            if (x > 40 + 112 * 4) {
+              x = 40;
+              y += 112;
+            }
+          }
+          y += 122;
+        }
+
+        // --- Foto di chiusura --- (array + legacy)
+        const closingArray = r.closingPhotos && r.closingPhotos.length > 0 ? r.closingPhotos : (r.closingPhoto ? [r.closingPhoto] : []);
+        if (closingArray.length > 0) {
+          if (y > 700) {
+            doc.addPage();
+            y = 60;
+          }
+          doc.text("Foto di chiusura:", 40, y);
+          y += 10;
+
+          let x = 40;
+          for (const p of closingArray) {
+            if (y > 700) {
+              doc.addPage();
+              y = 60;
+              x = 40;
+            }
+            addImg(p.dataUrl, x, 120, 120);
+            x += 132;
+            if (x > 40 + 132 * 3) { // 3 per riga
+              x = 40;
+              y += 132;
+            }
+          }
+          y += 140;
+        }
+
+        // --- Linea separatrice ---
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.5);
+        doc.line(40, y, 555, y);
+        y += 20;
       }
 
-      // --- Linea separatrice ---
-      doc.setDrawColor(180, 180, 180);
-      doc.setLineWidth(0.5);
-      doc.line(40, y, 555, y);
-      y += 20;
+      doc.save(
+        `export_${exportCantiere}_${exportStato}.pdf`
+      );
+    } catch (err) {
+      console.error(err);
+      alert("Per l'export PDF installa jspdf e jspdf-autotable");
     }
-
-    doc.save(
-      `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`
-    );
-  } catch (err) {
-    console.error(err);
-    alert("Per l'export PDF installa jspdf e jspdf-autotable");
   }
-}
-
 
   // --- RETURN ---
   return (
@@ -431,7 +536,7 @@ export default function App() {
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2.3 UI Clean</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.3.0 UI Clean</p>
 
           {/* MAPPA */}
           {view === "map" && (
@@ -748,53 +853,151 @@ export default function App() {
               ) : (
                 completed.map((r) => (
                   <div key={r.id} className="border rounded p-3 mb-2 bg-green-50 shadow-sm">
-                    <strong>{r.cantiere}</strong>
-                    <p>{r.comment}</p>
-                    <small className="text-gray-600">{formatDate(r.createdAt)}</small>
-
-                    {/* Miniature foto */}
-                    {r.photos?.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {r.photos.map((p, i) => (
-                          <img
-                            key={i}
-                            src={p.dataUrl}
-                            alt={p.name}
-                            className="w-24 h-24 object-cover rounded cursor-pointer"
-                            onClick={() => setModalImg(p.dataUrl)}
+                    {/* Sezione editing completate */}
+                    {editingCompletedId === r.id ? (
+                      <>
+                        <strong>{r.cantiere}</strong>
+                        <div className="mt-2">
+                          <label className="block text-sm font-medium mb-1">Commento di chiusura</label>
+                          <textarea
+                            value={editClosingComment}
+                            onChange={(e) => setEditClosingComment(e.target.value)}
+                            className="border rounded w-full p-2"
+                            placeholder="Aggiorna il commento di chiusura..."
                           />
-                        ))}
-                      </div>
+                        </div>
+
+                        {/* Foto chiusura esistenti */}
+                        {(r.closingPhotos?.length > 0 || r.closingPhoto?.dataUrl) && (
+                          <div className="mt-2">
+                            <p className="text-sm font-medium">Foto di chiusura esistenti:</p>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {(r.closingPhotos?.length ? r.closingPhotos : [r.closingPhoto]).filter(Boolean).map((p, i) => (
+                                <img key={i} src={p.dataUrl} alt={"closing_"+i} className="w-20 h-20 object-cover rounded border cursor-pointer" onClick={() => setModalImg(p.dataUrl)} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Aggiungi nuove foto di chiusura */}
+                        <div className="mt-2">
+                          <p className="text-sm font-medium mb-1">Aggiungi altre foto di chiusura</p>
+                          <div className="flex gap-2 flex-wrap">
+                            <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm btn-press">
+                              📷 Scatta
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                multiple
+                                onChange={handleEditCompletedPhotosUpload}
+                                className="hidden"
+                              />
+                            </label>
+                            <label className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer text-sm btn-press">
+                              🖼️ Galleria
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={handleEditCompletedPhotosUpload}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+
+                          {editClosingNewPhotos.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {editClosingNewPhotos.map((p, i) => (
+                                <img key={i} src={p.dataUrl} alt={"newclosing_"+i} className="w-20 h-20 object-cover rounded border cursor-pointer" onClick={() => setModalImg(p.dataUrl)} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => saveEditCompleted(r.id)}
+                            className="bg-green-600 text-white px-3 py-1 rounded text-sm btn-press"
+                          >
+                            Salva modifiche
+                          </button>
+                          <button
+                            onClick={() => { setEditingCompletedId(null); setEditClosingNewPhotos([]); }}
+                            className="bg-gray-300 text-black px-3 py-1 rounded text-sm btn-press"
+                          >
+                            Annulla
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <strong>{r.cantiere}</strong>
+                        <p>{r.comment}</p>
+                        <small className="text-gray-600">{formatDate(r.createdAt)}</small>
+
+                        {/* Miniature foto segnalazione */}
+                        {r.photos?.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {r.photos.map((p, i) => (
+                              <img
+                                key={i}
+                                src={p.dataUrl}
+                                alt={p.name}
+                                className="w-24 h-24 object-cover rounded cursor-pointer"
+                                onClick={() => setModalImg(p.dataUrl)}
+                              />
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Info chiusura */}
+                        <p className="mt-2 text-sm text-green-700">
+                          <strong>Chiusura:</strong> {r.closingComment}
+                        </p>
+                        <small className="text-gray-600">Completato il: {formatDate(r.completedAt)}</small>
+
+                        {/* Foto di chiusura (array + legacy) */}
+                        {(r.closingPhotos?.length > 0 || r.closingPhoto?.dataUrl) && (
+                          <div className="mt-2">
+                            <p className="text-sm font-medium">Foto di chiusura:</p>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {(r.closingPhotos?.length ? r.closingPhotos : [r.closingPhoto]).filter(Boolean).map((p, i) => (
+                                <img
+                                  key={i}
+                                  src={p.dataUrl}
+                                  alt={"closing_"+i}
+                                  className="w-24 h-24 object-cover rounded cursor-pointer"
+                                  onClick={() => setModalImg(p.dataUrl)}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Azioni */}
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          <button
+                            onClick={() => startEditCompleted(r)}
+                            className="bg-blue-500 text-white px-3 py-1 rounded text-sm btn-press"
+                          >
+                            ✏️ Modifica
+                          </button>
+                          <button
+                            onClick={() => reopenReport(r.id)}
+                            className="bg-amber-500 text-white px-3 py-1 rounded text-sm btn-press"
+                          >
+                            🔄 Riapri
+                          </button>
+                          <button
+                            onClick={() => deleteReport(r.id)}
+                            className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
+                          >
+                            🗑️ Elimina
+                          </button>
+                        </div>
+                      </>
                     )}
-
-                    {/* Info chiusura */}
-                    <p className="mt-2 text-sm text-green-700">
-                      <strong>Chiusura:</strong> {r.closingComment}
-                    </p>
-                    <small className="text-gray-600">Completato il: {formatDate(r.completedAt)}</small>
-
-                    {/* Foto di chiusura */}
-                    {r.closingPhoto?.dataUrl && (
-                      <div className="mt-2">
-                        <p className="text-sm font-medium">Foto di chiusura:</p>
-                        <img
-                          src={r.closingPhoto.dataUrl}
-                          alt="closing"
-                          className="w-32 h-32 object-cover rounded cursor-pointer"
-                          onClick={() => setModalImg(r.closingPhoto.dataUrl)}
-                        />
-                      </div>
-                    )}
-
-                    {/* Pulsante elimina per segnalazioni completate */}
-                    <div className="flex justify-end mt-2">
-                      <button
-                       onClick={() => deleteReport(r.id)}
-                       className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
-                      >
-                      🗑️ Elimina
-                      </button>
-                  </div>
                   </div>
                 ))
               )}
@@ -819,6 +1022,8 @@ export default function App() {
           {view === "export" && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold mb-3 text-center">Esporta segnalazioni</h2>
+
+              {/* Filtro cantiere */}
               <select
                 value={exportCantiere}
                 onChange={(e) => setExportCantiere(e.target.value)}
@@ -828,6 +1033,17 @@ export default function App() {
                 {CANTIERI.map((c) => (
                   <option key={c}>{c}</option>
                 ))}
+              </select>
+
+              {/* Filtro stato */}
+              <select
+                value={exportStato}
+                onChange={(e) => setExportStato(e.target.value)}
+                className="border rounded p-2 w-full"
+              >
+                <option>Tutti</option>
+                <option>Aperte</option>
+                <option>Completate</option>
               </select>
 
               <div className="flex gap-2 justify-center">
