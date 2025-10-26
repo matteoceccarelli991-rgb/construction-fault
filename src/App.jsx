@@ -1,12 +1,11 @@
-// MC v6.2.3 UI Clean — Construction Fault
+// MC v6.2.7 UI Clean — Construction Fault
 // - UI tema chiaro (bg-gray-100, card bianche, navbar bianca)
 // - Mappa: satellite di default + toggle Satellite/Mappa + "📍 Centra"
 // - Lista: form nuova + miniature foto cliccabili + pulsanti Modifica / Completata / Cancella
 // - Chiusura: commento obbligatorio + controllo unico "Aggiungi foto di chiusura"
-//             con opzioni interne: Scatta (camera) e Galleria
-// - Completate: riepilogo + miniature + foto di chiusura se presente
-// - Export: sezione dedicata (Excel/PDF), per cantiere o tutti (rispetta filtro)
-// - PDF: include foto delle segnalazioni e foto di chiusura
+// - Completate: riepilogo + miniature + foto di chiusura se presente + Elimina
+// - Export: filtro per cantiere + filtro per stato (Tutti / Aperte / Completate)
+// - PDF: banner verde riepilogo + mini-banner per segnalazione con foto + separatori
 // Requisiti: react, react-dom, react-leaflet, leaflet, lucide-react, exceljs, jspdf, jspdf-autotable
 
 import React, { useState, useEffect, useRef } from "react";
@@ -14,7 +13,6 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
-// import "./animations.css"; // se usi animazioni personalizzate
 
 const STORAGE_KEY = "construction_fault_reports_v17";
 const CANTIERI = [
@@ -45,6 +43,10 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [filterCantiere, setFilterCantiere] = useState("Tutti");
 
+  // Export
+  const [exportCantiere, setExportCantiere] = useState("Tutti");
+  const [exportStato, setExportStato] = useState("Tutti");
+
   // Editing
   const [editingId, setEditingId] = useState(null);
   const [editComment, setEditComment] = useState("");
@@ -57,9 +59,6 @@ export default function App() {
 
   // UI
   const [modalImg, setModalImg] = useState(null);
-
-  // Export
-  const [exportCantiere, setExportCantiere] = useState("Tutti");
 
   const commentRef = useRef();
   const mapRef = useRef();
@@ -248,11 +247,16 @@ export default function App() {
     }
   }
 
-  // Helpers Export — rispetta SEMPRE il filtro exportCantiere
+  // Helpers Export — applica filtro cantiere + stato
   function getReportsForExport() {
-    return reports.filter(
-      (r) => exportCantiere === "Tutti" || r.cantiere === exportCantiere
-    );
+    return reports.filter((r) => {
+      const matchCantiere = exportCantiere === "Tutti" || r.cantiere === exportCantiere;
+      const matchStato =
+        exportStato === "Tutti" ||
+        (exportStato === "Aperte" && !r.completed) ||
+        (exportStato === "Completate" && r.completed);
+      return matchCantiere && matchStato;
+    });
   }
 
   async function exportExcel() {
@@ -287,7 +291,7 @@ export default function App() {
       const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.xlsx`;
+      a.download = `export_${exportCantiere}_${exportStato}.xlsx`;
       a.click();
     } catch (err) {
       console.error(err);
@@ -295,133 +299,133 @@ export default function App() {
     }
   }
 
- async function exportPDF() {
-  try {
-    const jsPDF = (await import("jspdf")).default;
-    const autoTable = (await import("jspdf-autotable")).default;
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
+  async function exportPDF() {
+    try {
+      const jsPDF = (await import("jspdf")).default;
+      const autoTable = (await import("jspdf-autotable")).default;
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-    const pool = getReportsForExport();
+      const pool = getReportsForExport();
 
-    // --- HEADER PRINCIPALE ---
-    doc.setFontSize(16);
-    doc.text("Construction Fault - Report", 40, 40);
-    doc.setFontSize(10);
-    doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
-    doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
+      // --- HEADER PRINCIPALE ---
+      doc.setFontSize(16);
+      doc.text("Construction Fault - Report", 40, 40);
+      doc.setFontSize(10);
+      doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
+      doc.text(`Stato: ${exportStato}`, 200, 58);
+      doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-    // --- TABELLA RIEPILOGATIVA (BANNER VERDE) ---
-    autoTable(doc, {
-      startY: 90,
-      styles: { fontSize: 9 },
-      headStyles: {
-        fillColor: [46, 204, 113],
-        textColor: [255, 255, 255],
-      },
-      head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
-      body: pool.map((r) => [
-        r.cantiere,
-        r.comment || "",
-        formatDate(r.createdAt),
-        r.completed ? "Completata" : "Aperta",
-        r.closingComment || "",
-        r.completedAt ? formatDate(r.completedAt) : "-",
-      ]),
-      theme: "grid",
-      margin: { left: 40, right: 40 },
-    });
+      // --- TABELLA RIEPILOGATIVA (BANNER VERDE) ---
+      autoTable(doc, {
+        startY: 90,
+        styles: { fontSize: 9 },
+        headStyles: {
+          fillColor: [46, 204, 113],
+          textColor: [255, 255, 255],
+        },
+        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
+        body: pool.map((r) => [
+          r.cantiere,
+          r.comment || "",
+          formatDate(r.createdAt),
+          r.completed ? "Completata" : "Aperta",
+          r.closingComment || "",
+          r.completedAt ? formatDate(r.completedAt) : "-",
+        ]),
+        theme: "grid",
+        margin: { left: 40, right: 40 },
+      });
 
-    // --- BLOCCO SINGOLE SEGNALAZIONI ---
-    let y = doc.lastAutoTable.finalY + 30;
+      // --- BLOCCO SINGOLE SEGNALAZIONI ---
+      let y = doc.lastAutoTable.finalY + 30;
 
-    const addImg = (dataUrl, x, w = 100, h = 100) => {
-      try {
-        doc.addImage(dataUrl, "JPEG", x, y, w, h);
-      } catch {
+      const addImg = (dataUrl, x, w = 100, h = 100) => {
         try {
-          doc.addImage(dataUrl, "PNG", x, y, w, h);
-        } catch {}
-      }
-    };
-
-    for (const r of pool) {
-      if (y > 700) {
-        doc.addPage();
-        y = 60;
-      }
-
-      // --- MINI BANNER VERDE per la segnalazione ---
-      doc.setFillColor(46, 204, 113);
-      doc.rect(40, y, 515, 24, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(11);
-      doc.text(`${r.cantiere} — ${r.comment || "-"}`, 50, y + 16);
-
-      // reset testo nero
-      doc.setTextColor(0, 0, 0);
-      y += 36;
-
-      doc.setFontSize(9);
-      doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
-      y += 12;
-      doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
-      y += 12;
-      if (r.completedAt) doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
-      y += 12;
-      if (r.closingComment)
-        doc.text(`Chiusura: ${r.closingComment}`, 40, y);
-      y += 16;
-
-      // --- Foto segnalazione ---
-      if (r.photos?.length > 0) {
-        doc.setFontSize(9);
-        doc.text("Foto segnalazione:", 40, y);
-        y += 8;
-        let x = 40;
-        for (const p of r.photos) {
-          if (y > 700) {
-            doc.addPage();
-            y = 60;
-            x = 40;
-          }
-          addImg(p.dataUrl, x);
-          x += 112;
-          if (x > 40 + 112 * 4) {
-            x = 40;
-            y += 112;
-          }
+          doc.addImage(dataUrl, "JPEG", x, y, w, h);
+        } catch {
+          try {
+            doc.addImage(dataUrl, "PNG", x, y, w, h);
+          } catch {}
         }
-        y += 122;
-      }
+      };
 
-      // --- Foto di chiusura ---
-      if (r.closingPhoto?.dataUrl) {
+      for (const r of pool) {
         if (y > 700) {
           doc.addPage();
           y = 60;
         }
-        doc.text("Foto di chiusura:", 40, y);
-        y += 10;
-        addImg(r.closingPhoto.dataUrl, 40, 120, 120);
-        y += 130;
+
+        // --- MINI BANNER VERDE per la segnalazione ---
+        doc.setFillColor(46, 204, 113);
+        doc.rect(40, y, 515, 24, "F");
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(11);
+        doc.text(`${r.cantiere} — ${r.comment || "-"}`, 50, y + 16);
+
+        // reset testo nero
+        doc.setTextColor(0, 0, 0);
+        y += 36;
+
+        doc.setFontSize(9);
+        doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
+        y += 12;
+        doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
+        y += 12;
+        if (r.completedAt) doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
+        y += 12;
+        if (r.closingComment)
+          doc.text(`Chiusura: ${r.closingComment}`, 40, y);
+        y += 16;
+
+        // --- Foto segnalazione ---
+        if (r.photos?.length > 0) {
+          doc.setFontSize(9);
+          doc.text("Foto segnalazione:", 40, y);
+          y += 8;
+          let x = 40;
+          for (const p of r.photos) {
+            if (y > 700) {
+              doc.addPage();
+              y = 60;
+              x = 40;
+            }
+            addImg(p.dataUrl, x);
+            x += 112;
+            if (x > 40 + 112 * 4) {
+              x = 40;
+              y += 112;
+            }
+          }
+          y += 122;
+        }
+
+        // --- Foto di chiusura ---
+        if (r.closingPhoto?.dataUrl) {
+          if (y > 700) {
+            doc.addPage();
+            y = 60;
+          }
+          doc.text("Foto di chiusura:", 40, y);
+          y += 10;
+          addImg(r.closingPhoto.dataUrl, 40, 120, 120);
+          y += 130;
+        }
+
+        // --- Linea separatrice ---
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.5);
+        doc.line(40, y, 555, y);
+        y += 20;
       }
 
-      // --- Linea separatrice ---
-      doc.setDrawColor(180, 180, 180);
-      doc.setLineWidth(0.5);
-      doc.line(40, y, 555, y);
-      y += 20;
+      doc.save(
+        `export_${exportCantiere}_${exportStato}.pdf`
+      );
+    } catch (err) {
+      console.error(err);
+      alert("Per l'export PDF installa jspdf e jspdf-autotable");
     }
-
-    doc.save(
-      `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`
-    );
-  } catch (err) {
-    console.error(err);
-    alert("Per l'export PDF installa jspdf e jspdf-autotable");
   }
-}
-
 
   // --- RETURN ---
   return (
@@ -429,7 +433,7 @@ export default function App() {
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2.3 UI Clean</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.2.7 UI Clean</p>
 
           {/* MAPPA */}
           {view === "map" && (
@@ -787,12 +791,12 @@ export default function App() {
                     {/* Pulsante elimina per segnalazioni completate */}
                     <div className="flex justify-end mt-2">
                       <button
-                       onClick={() => deleteReport(r.id)}
-                       className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
+                        onClick={() => deleteReport(r.id)}
+                        className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
                       >
-                      🗑️ Elimina
+                        🗑️ Elimina
                       </button>
-                  </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -817,6 +821,8 @@ export default function App() {
           {view === "export" && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold mb-3 text-center">Esporta segnalazioni</h2>
+
+              {/* Filtro cantiere */}
               <select
                 value={exportCantiere}
                 onChange={(e) => setExportCantiere(e.target.value)}
@@ -827,6 +833,18 @@ export default function App() {
                   <option key={c}>{c}</option>
                 ))}
               </select>
+
+              {/* Filtro stato */}
+              <select
+                value={exportStato}
+                onChange={(e) => setExportStato(e.target.value)}
+                className="border rounded p-2 w-full"
+              >
+                <option>Tutti</option>
+                <option>Aperte</option>
+                <option>Completate</option>
+              </select>
+
               <div className="flex gap-2 justify-center">
                 <button onClick={exportExcel} className="bg-green-600 text-white px-4 py-2 rounded btn-press">
                   Excel (.xlsx)
