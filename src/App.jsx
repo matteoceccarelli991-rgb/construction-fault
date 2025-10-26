@@ -303,19 +303,19 @@ export default function App() {
 
     const pool = getReportsForExport();
 
-    // Header principale
+    // --- HEADER PRINCIPALE ---
     doc.setFontSize(16);
     doc.text("Construction Fault - Report", 40, 40);
     doc.setFontSize(10);
     doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
     doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-    // --- Tabella verde riepilogativa ---
+    // --- TABELLA RIEPILOGATIVA (BANNER VERDE) ---
     autoTable(doc, {
       startY: 90,
       styles: { fontSize: 9 },
       headStyles: {
-        fillColor: [46, 204, 113], // verde brillante
+        fillColor: [46, 204, 113],
         textColor: [255, 255, 255],
       },
       head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
@@ -331,7 +331,7 @@ export default function App() {
       margin: { left: 40, right: 40 },
     });
 
-    // --- Blocco segnalazioni con foto ---
+    // --- BLOCCO SINGOLE SEGNALAZIONI ---
     let y = doc.lastAutoTable.finalY + 30;
 
     const addImg = (dataUrl, x, w = 100, h = 100) => {
@@ -350,25 +350,31 @@ export default function App() {
         y = 60;
       }
 
-      doc.setFontSize(12);
-      doc.text(`Cantiere: ${r.cantiere}`, 40, y);
-      y += 14;
-      doc.setFontSize(10);
-      doc.text(`Commento: ${r.comment || "-"}`, 40, y);
-      y += 12;
+      // --- MINI BANNER VERDE per la segnalazione ---
+      doc.setFillColor(46, 204, 113);
+      doc.rect(40, y, 515, 24, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+      doc.text(`${r.cantiere} — ${r.comment || "-"}`, 50, y + 16);
+
+      // reset testo nero
+      doc.setTextColor(0, 0, 0);
+      y += 36;
+
+      doc.setFontSize(9);
       doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
       y += 12;
       doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
       y += 12;
-      if (r.completedAt)
-        doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
+      if (r.completedAt) doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
       y += 12;
       if (r.closingComment)
         doc.text(`Chiusura: ${r.closingComment}`, 40, y);
-      y += 18;
+      y += 16;
 
-      // Foto segnalazione
+      // --- Foto segnalazione ---
       if (r.photos?.length > 0) {
+        doc.setFontSize(9);
         doc.text("Foto segnalazione:", 40, y);
         y += 8;
         let x = 40;
@@ -388,7 +394,7 @@ export default function App() {
         y += 122;
       }
 
-      // Foto di chiusura
+      // --- Foto di chiusura ---
       if (r.closingPhoto?.dataUrl) {
         if (y > 700) {
           doc.addPage();
@@ -400,7 +406,7 @@ export default function App() {
         y += 130;
       }
 
-      // Linea divisoria tra segnalazioni
+      // --- Linea separatrice ---
       doc.setDrawColor(180, 180, 180);
       doc.setLineWidth(0.5);
       doc.line(40, y, 555, y);
