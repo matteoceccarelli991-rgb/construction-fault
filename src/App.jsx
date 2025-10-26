@@ -1,20 +1,10 @@
-// MC v6.3.0 UI Clean — Construction Fault
-// - UI tema chiaro (bg-gray-100, card bianche, navbar bianca)
-// - Mappa: satellite di default + toggle Satellite/Mappa + "📍 Centra"
-// - Lista: form nuova + miniature foto cliccabili + pulsanti Modifica / Completata / Cancella
-// - Chiusura: commento obbligatorio + controllo unico "Aggiungi foto di chiusura"
-// - Completate: riepilogo + miniature + foto di chiusura se presente + Elimina + Modifica + Riapri
-// - Export: filtro per cantiere + filtro per stato (Tutti / Aperte / Completate)
-// - PDF: banner verde riepilogo + mini-banner per segnalazione con foto (verde=complete, arancione=aperte) + separatori
-// Requisiti: react, react-dom, react-leaflet, leaflet, lucide-react, exceljs, jspdf, jspdf-autotable
-
 import React, { useState, useEffect, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
 
-const STORAGE_KEY = "construction_fault_reports_v17";
+const STORAGE_KEY = "construction_fault_reports_v17"; // manteniamo la stessa chiave per compatibilità
 const CANTIERI = [
   "A6", "Altamura", "Borgonovo", "Rovigo",
   "Serrotti EST", "Stomeo", "Stornarella", "Uta",
@@ -173,8 +163,8 @@ export default function App() {
       completed: false,
       completedAt: null,
       closingComment: "",
-      closingPhoto: null,           // legacy (singola)
-      closingPhotos: [],            // nuovo (multiplo)
+      closingPhoto: null,         // legacy (singola)
+      closingPhotos: [],          // nuovo (multiplo)
       photos: tempPhotos.map((p) => ({ ...p, timestamp, lat: pos.lat, lng: pos.lng })),
     };
     setReports((prev) => [newReport, ...prev]);
@@ -386,10 +376,12 @@ export default function App() {
     }
   }
 
+  // --- EXPORT PDF CON QR CODE GOOGLE MAPS ---
   async function exportPDF() {
     try {
       const jsPDF = (await import("jspdf")).default;
       const autoTable = (await import("jspdf-autotable")).default;
+      const QRCode = (await import("qrcode")).default;
       const doc = new jsPDF({ unit: "pt", format: "a4" });
 
       const pool = getReportsForExport();
@@ -443,27 +435,48 @@ export default function App() {
         }
 
         // --- MINI BANNER COLORATO per la segnalazione ---
-        const bannerColor = r.completed ? [34, 197, 94] : [249, 115, 22]; // verde / arancione
+        const bannerColor = r.completed ? [34, 197, 94] : [249, 115, 22];
         doc.setFillColor(...bannerColor);
         doc.rect(40, y, 515, 24, "F");
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(11);
         doc.text(`${r.cantiere} — ${r.comment || "-"}`, 50, y + 16);
-
-        // reset testo nero
         doc.setTextColor(0, 0, 0);
         y += 36;
 
+        // --- Info base ---
         doc.setFontSize(9);
         doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
         y += 12;
         doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
         y += 12;
         if (r.completedAt) doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
-        y += 12;
-        if (r.closingComment)
+
+        // --- Coordinate + QR Code Google Maps ---
+        const firstPhoto = r.photos?.[0];
+        if (firstPhoto?.lat && firstPhoto?.lng) {
+          const lat = Number(firstPhoto.lat).toFixed(6);
+          const lng = Number(firstPhoto.lng).toFixed(6);
+          const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+          doc.text(`Coordinate: ${lat}, ${lng}`, 40, y + 12);
+
+          try {
+            const qrDataUrl = await QRCode.toDataURL(mapUrl);
+            // QR posizionato a destra del testo info
+            doc.addImage(qrDataUrl, "PNG", 480, y - 5, 60, 60);
+          } catch (e) {
+            console.warn("Errore generazione QR per:", mapUrl, e);
+          }
+
+          y += 24;
+        } else {
+          y += 12;
+        }
+
+        if (r.closingComment) {
           doc.text(`Chiusura: ${r.closingComment}`, 40, y);
-        y += 16;
+          y += 16;
+        }
 
         // --- Foto segnalazione ---
         if (r.photos?.length > 0) {
@@ -487,7 +500,7 @@ export default function App() {
           y += 122;
         }
 
-        // --- Foto di chiusura --- (array + legacy)
+        // --- Foto di chiusura (array + legacy) ---
         const closingArray = r.closingPhotos && r.closingPhotos.length > 0 ? r.closingPhotos : (r.closingPhoto ? [r.closingPhoto] : []);
         if (closingArray.length > 0) {
           if (y > 700) {
@@ -526,7 +539,7 @@ export default function App() {
       );
     } catch (err) {
       console.error(err);
-      alert("Per l'export PDF installa jspdf e jspdf-autotable");
+      alert("Per l'export PDF installa jspdf, jspdf-autotable e qrcode");
     }
   }
 
@@ -536,7 +549,7 @@ export default function App() {
       <div className="flex-1 overflow-y-auto p-3 pb-24">
         <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-4">
           <h1 className="text-2xl sm:text-3xl font-bold text-center">Construction Fault</h1>
-          <p className="text-xs text-gray-500 text-center mb-4">MC v6.3.0 UI Clean</p>
+          <p className="text-xs text-gray-500 text-center mb-4">MC v6.4.0 UI Clean</p>
 
           {/* MAPPA */}
           {view === "map" && (
