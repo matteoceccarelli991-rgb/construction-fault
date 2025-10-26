@@ -296,87 +296,109 @@ export default function App() {
   }
 
   async function exportPDF() {
-    try {
-      const jsPDF = (await import("jspdf")).default;
-      const autoTable = (await import("jspdf-autotable")).default;
-      const doc = new jsPDF({ unit: "pt", format: "a4" });
+  try {
+    const jsPDF = (await import("jspdf")).default;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
 
-      const pool = getReportsForExport();
+    const pool = getReportsForExport();
 
-      doc.setFontSize(16);
-      doc.text("Construction Fault - Report", 40, 40);
-      doc.setFontSize(10);
-      doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
-      doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
+    // Header
+    doc.setFontSize(16);
+    doc.text("Construction Fault - Report", 40, 40);
+    doc.setFontSize(10);
+    doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
+    doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-      // Tabella riepilogo
-      autoTable(doc, {
-        startY: 90,
-        styles: { fontSize: 9 },
-        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
-        body: pool.map((r) => [
-          r.cantiere,
-          r.comment || "",
-          formatDate(r.createdAt),
-          r.completed ? "Completata" : "Aperta",
-          r.closingComment || "",
-          r.completedAt ? formatDate(r.completedAt) : "-",
-        ]),
-        theme: "grid",
-        margin: { left: 40, right: 40 },
-      });
+    let y = 100;
 
-      // Sezione immagini per ogni segnalazione
-      let y = doc.lastAutoTable.finalY + 20;
+    const addImg = (dataUrl, x, w = 100, h = 100) => {
+      try {
+        doc.addImage(dataUrl, "JPEG", x, y, w, h);
+      } catch {
+        try {
+          doc.addImage(dataUrl, "PNG", x, y, w, h);
+        } catch {}
+      }
+    };
 
-      const addImg = (dataUrl, x, w = 100, h = 100) => {
-        try { doc.addImage(dataUrl, "JPEG", x, y, w, h); }
-        catch { try { doc.addImage(dataUrl, "PNG", x, y, w, h); } catch {} }
-      };
-
-      for (const r of pool) {
-        if (y > 700) { doc.addPage(); y = 40; }
-
-        doc.setFontSize(12);
-        doc.text(`Cantiere: ${r.cantiere}`, 40, y);
-        y += 14;
-        doc.setFontSize(9);
-        doc.text(`Commento: ${r.comment || "-"}`, 40, y);
-        y += 12;
-
-        // Foto segnalazioni (tutte le foto caricate per la segnalazione)
-        if (r.photos && r.photos.length > 0) {
-          let x = 40;
-          for (const p of r.photos) {
-            if (y > 700) { doc.addPage(); y = 40; x = 40; }
-            addImg(p.dataUrl, x);
-            x += 112; // spazio orizzontale
-            if (x > 40 + 112 * 4) { // 5 foto per riga
-              x = 40;
-              y += 112;
-            }
-          }
-          y += 122;
-        }
-
-        // Foto di chiusura (se esiste)
-        if (r.closingPhoto?.dataUrl) {
-          if (y > 700) { doc.addPage(); y = 40; }
-          doc.text("Foto di chiusura:", 40, y);
-          y += 10;
-          addImg(r.closingPhoto.dataUrl, 40, 120, 120);
-          y += 130;
-        }
-
-        y += 10; // Spazio fra segnalazioni
+    for (const r of pool) {
+      // Nuova pagina se non c'è spazio
+      if (y > 700) {
+        doc.addPage();
+        y = 60;
       }
 
-      doc.save(`export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`);
-    } catch (err) {
-      console.error(err);
-      alert("Per l'export PDF installa jspdf e jspdf-autotable");
+      // Titolo segnalazione
+      doc.setFontSize(12);
+      doc.text(`Cantiere: ${r.cantiere}`, 40, y);
+      y += 14;
+
+      doc.setFontSize(10);
+      doc.text(`Commento: ${r.comment || "-"}`, 40, y);
+      y += 12;
+      doc.text(`Creato il: ${formatDate(r.createdAt)}`, 40, y);
+      y += 12;
+      doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
+      y += 12;
+
+      if (r.completedAt)
+        doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
+      y += 14;
+
+      if (r.closingComment)
+        doc.text(`Chiusura: ${r.closingComment}`, 40, y);
+      y += 18;
+
+      // Foto segnalazione
+      if (r.photos && r.photos.length > 0) {
+        doc.setFontSize(10);
+        doc.text("Foto segnalazione:", 40, y);
+        y += 8;
+        let x = 40;
+        for (const p of r.photos) {
+          if (y > 700) {
+            doc.addPage();
+            y = 60;
+            x = 40;
+          }
+          addImg(p.dataUrl, x);
+          x += 112;
+          if (x > 40 + 112 * 4) {
+            x = 40;
+            y += 112;
+          }
+        }
+        y += 122;
+      }
+
+      // Foto di chiusura
+      if (r.closingPhoto?.dataUrl) {
+        if (y > 700) {
+          doc.addPage();
+          y = 60;
+        }
+        doc.text("Foto di chiusura:", 40, y);
+        y += 10;
+        addImg(r.closingPhoto.dataUrl, 40, 120, 120);
+        y += 130;
+      }
+
+      // Linea di separazione
+      doc.setDrawColor(180, 180, 180); // grigio chiaro
+      doc.setLineWidth(0.5);
+      doc.line(40, y, 555, y);
+      y += 20; // spazio sotto la linea
     }
+
+    doc.save(
+      `export_${exportCantiere === "Tutti" ? "all" : exportCantiere}.pdf`
+    );
+  } catch (err) {
+    console.error(err);
+    alert("Per l'export PDF installa jspdf e jspdf-autotable");
   }
+}
+
 
   // --- RETURN ---
   return (
