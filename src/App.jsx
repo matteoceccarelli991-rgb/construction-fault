@@ -295,21 +295,44 @@ export default function App() {
     }
   }
 
-  async function exportPDF() {
+ async function exportPDF() {
   try {
     const jsPDF = (await import("jspdf")).default;
+    const autoTable = (await import("jspdf-autotable")).default;
     const doc = new jsPDF({ unit: "pt", format: "a4" });
 
     const pool = getReportsForExport();
 
-    // Header
+    // Header principale
     doc.setFontSize(16);
     doc.text("Construction Fault - Report", 40, 40);
     doc.setFontSize(10);
     doc.text(`Cantiere: ${exportCantiere}`, 40, 58);
     doc.text(`Generato: ${new Date().toLocaleString()}`, 40, 72);
 
-    let y = 100;
+    // --- Tabella verde riepilogativa ---
+    autoTable(doc, {
+      startY: 90,
+      styles: { fontSize: 9 },
+      headStyles: {
+        fillColor: [46, 204, 113], // verde brillante
+        textColor: [255, 255, 255],
+      },
+      head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
+      body: pool.map((r) => [
+        r.cantiere,
+        r.comment || "",
+        formatDate(r.createdAt),
+        r.completed ? "Completata" : "Aperta",
+        r.closingComment || "",
+        r.completedAt ? formatDate(r.completedAt) : "-",
+      ]),
+      theme: "grid",
+      margin: { left: 40, right: 40 },
+    });
+
+    // --- Blocco segnalazioni con foto ---
+    let y = doc.lastAutoTable.finalY + 30;
 
     const addImg = (dataUrl, x, w = 100, h = 100) => {
       try {
@@ -322,17 +345,14 @@ export default function App() {
     };
 
     for (const r of pool) {
-      // Nuova pagina se non c'è spazio
       if (y > 700) {
         doc.addPage();
         y = 60;
       }
 
-      // Titolo segnalazione
       doc.setFontSize(12);
       doc.text(`Cantiere: ${r.cantiere}`, 40, y);
       y += 14;
-
       doc.setFontSize(10);
       doc.text(`Commento: ${r.comment || "-"}`, 40, y);
       y += 12;
@@ -340,18 +360,15 @@ export default function App() {
       y += 12;
       doc.text(`Stato: ${r.completed ? "Completata" : "Aperta"}`, 40, y);
       y += 12;
-
       if (r.completedAt)
         doc.text(`Data chiusura: ${formatDate(r.completedAt)}`, 40, y);
-      y += 14;
-
+      y += 12;
       if (r.closingComment)
         doc.text(`Chiusura: ${r.closingComment}`, 40, y);
       y += 18;
 
       // Foto segnalazione
-      if (r.photos && r.photos.length > 0) {
-        doc.setFontSize(10);
+      if (r.photos?.length > 0) {
         doc.text("Foto segnalazione:", 40, y);
         y += 8;
         let x = 40;
@@ -383,11 +400,11 @@ export default function App() {
         y += 130;
       }
 
-      // Linea di separazione
-      doc.setDrawColor(180, 180, 180); // grigio chiaro
+      // Linea divisoria tra segnalazioni
+      doc.setDrawColor(180, 180, 180);
       doc.setLineWidth(0.5);
       doc.line(40, y, 555, y);
-      y += 20; // spazio sotto la linea
+      y += 20;
     }
 
     doc.save(
