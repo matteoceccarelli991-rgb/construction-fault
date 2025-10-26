@@ -313,13 +313,14 @@ export default function App() {
       autoTable(doc, {
         startY: 90,
         styles: { fontSize: 9 },
-        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura"]],
+        head: [["Cantiere", "Commento", "Creato", "Stato", "Chiusura", "Data Chiusura"]],
         body: pool.map((r) => [
           r.cantiere,
           r.comment || "",
           formatDate(r.createdAt),
           r.completed ? "Completata" : "Aperta",
           r.closingComment || "",
+          r.completedAt ? formatDate(r.completedAt) : "-",
         ]),
         theme: "grid",
         margin: { left: 40, right: 40 },
@@ -737,6 +738,16 @@ export default function App() {
                         />
                       </div>
                     )}
+
+                    {/* Pulsante elimina per segnalazioni completate */}
+                    <div className="flex justify-end mt-2">
+                      <button
+                       onClick={() => deleteReport(r.id)}
+                       className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
+                      >
+                      🗑️ Elimina
+                      </button>
+                  </div>
                   </div>
                 ))
               )}
