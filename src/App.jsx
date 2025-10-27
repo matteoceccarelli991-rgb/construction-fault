@@ -25,7 +25,7 @@ export default function App() {
       return [];
     }
   });
-  const [view, setView] = useState("list");
+  const [view, setView] = useState("open"); // << rinominata vista iniziale (era "list")
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
   const [mapType, setMapType] = useState("satellite"); // satellite di default
   const [userPos, setUserPos] = useState(null);
@@ -305,6 +305,7 @@ export default function App() {
 
   const active = filtered.filter((r) => !r.completed);
   const completed = filtered.filter((r) => r.completed);
+  const allReports = filtered; // alias per la vista “Tutte”
 
   // Icone Leaflet
   const iconUser = L.icon({
@@ -604,8 +605,8 @@ export default function App() {
             </div>
           )}
 
-          {/* LISTA */}
-          {view === "list" && (
+          {/* APERTE (ex LISTA) */}
+          {view === "open" && (
             <>
               {/* Form nuova segnalazione */}
               <div className="mb-3">
@@ -857,166 +858,6 @@ export default function App() {
             </>
           )}
 
-          {/* COMPLETATE */}
-          {view === "completed" && (
-            <>
-              <h2 className="text-lg font-semibold mb-2">Segnalazioni completate</h2>
-              {completed.length === 0 ? (
-                <p className="text-gray-500 text-center">Nessuna segnalazione completata.</p>
-              ) : (
-                completed.map((r) => (
-                  <div key={r.id} className="border rounded p-3 mb-2 bg-green-50 shadow-sm">
-                    {/* Sezione editing completate */}
-                    {editingCompletedId === r.id ? (
-                      <>
-                        <strong>{r.cantiere}</strong>
-                        <div className="mt-2">
-                          <label className="block text-sm font-medium mb-1">Commento di chiusura</label>
-                          <textarea
-                            value={editClosingComment}
-                            onChange={(e) => setEditClosingComment(e.target.value)}
-                            className="border rounded w-full p-2"
-                            placeholder="Aggiorna il commento di chiusura..."
-                          />
-                        </div>
-
-                        {/* Foto chiusura esistenti */}
-                        {(r.closingPhotos?.length > 0 || r.closingPhoto?.dataUrl) && (
-                          <div className="mt-2">
-                            <p className="text-sm font-medium">Foto di chiusura esistenti:</p>
-                            <div className="flex flex-wrap gap-2 mt-1">
-                              {(r.closingPhotos?.length ? r.closingPhotos : [r.closingPhoto]).filter(Boolean).map((p, i) => (
-                                <img key={i} src={p.dataUrl} alt={"closing_"+i} className="w-20 h-20 object-cover rounded border cursor-pointer" onClick={() => setModalImg(p.dataUrl)} />
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Aggiungi nuove foto di chiusura */}
-                        <div className="mt-2">
-                          <p className="text-sm font-medium mb-1">Aggiungi altre foto di chiusura</p>
-                          <div className="flex gap-2 flex-wrap">
-                            <label className="bg-green-600 text-white px-3 py-2 rounded cursor-pointer text-sm btn-press">
-                              📷 Scatta
-                              <input
-                                type="file"
-                                accept="image/*"
-                                capture="environment"
-                                multiple
-                                onChange={handleEditCompletedPhotosUpload}
-                                className="hidden"
-                              />
-                            </label>
-                            <label className="bg-blue-600 text-white px-3 py-2 rounded cursor-pointer text-sm btn-press">
-                              🖼️ Galleria
-                              <input
-                                type="file"
-                                accept="image/*"
-                                multiple
-                                onChange={handleEditCompletedPhotosUpload}
-                                className="hidden"
-                              />
-                            </label>
-                          </div>
-
-                          {editClosingNewPhotos.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {editClosingNewPhotos.map((p, i) => (
-                                <img key={i} src={p.dataUrl} alt={"newclosing_"+i} className="w-20 h-20 object-cover rounded border cursor-pointer" onClick={() => setModalImg(p.dataUrl)} />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2 mt-3">
-                          <button
-                            onClick={() => saveEditCompleted(r.id)}
-                            className="bg-green-600 text-white px-3 py-1 rounded text-sm btn-press"
-                          >
-                            Salva modifiche
-                          </button>
-                          <button
-                            onClick={() => { setEditingCompletedId(null); setEditClosingNewPhotos([]); }}
-                            className="bg-gray-300 text-black px-3 py-1 rounded text-sm btn-press"
-                          >
-                            Annulla
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <strong>{r.cantiere}</strong>
-                        <p>{r.comment}</p>
-                        <small className="text-gray-600">{formatDate(r.createdAt)}</small>
-
-                        {/* Miniature foto segnalazione */}
-                        {r.photos?.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {r.photos.map((p, i) => (
-                              <img
-                                key={i}
-                                src={p.dataUrl}
-                                alt={p.name}
-                                className="w-24 h-24 object-cover rounded cursor-pointer"
-                                onClick={() => setModalImg(p.dataUrl)}
-                              />
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Info chiusura */}
-                        <p className="mt-2 text-sm text-green-700">
-                          <strong>Chiusura:</strong> {r.closingComment}
-                        </p>
-                        <small className="text-gray-600">Completato il: {formatDate(r.completedAt)}</small>
-
-                        {/* Foto di chiusura (array + legacy) */}
-                        {(r.closingPhotos?.length > 0 || r.closingPhoto?.dataUrl) && (
-                          <div className="mt-2">
-                            <p className="text-sm font-medium">Foto di chiusura:</p>
-                            <div className="flex flex-wrap gap-2 mt-1">
-                              {(r.closingPhotos?.length ? r.closingPhotos : [r.closingPhoto]).filter(Boolean).map((p, i) => (
-                                <img
-                                  key={i}
-                                  src={p.dataUrl}
-                                  alt={"closing_"+i}
-                                  className="w-24 h-24 object-cover rounded cursor-pointer"
-                                  onClick={() => setModalImg(p.dataUrl)}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Azioni */}
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          <button
-                            onClick={() => startEditCompleted(r)}
-                            className="bg-blue-500 text-white px-3 py-1 rounded text-sm btn-press"
-                          >
-                            ✏️ Modifica
-                          </button>
-                          <button
-                            onClick={() => reopenReport(r.id)}
-                            className="bg-amber-500 text-white px-3 py-1 rounded text-sm btn-press"
-                          >
-                            🔄 Riapri
-                          </button>
-                          <button
-                            onClick={() => deleteReport(r.id)}
-                            className="bg-red-500 text-white px-3 py-1 rounded text-sm btn-press"
-                          >
-                            🗑️ Elimina
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))
-              )}
-            </>
-          )}
-
           {/* MODAL FOTO */}
           {modalImg && (
             <div
@@ -1028,6 +869,97 @@ export default function App() {
                 alt="preview"
                 className="max-h-[90%] max-w-[90%] rounded-lg shadow-lg"
               />
+            </div>
+          )}
+
+          {/* TUTTE (nuova vista) */}
+          {view === "all" && (
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold mb-3 text-center">Tutte le segnalazioni</h2>
+
+              {/* Filtro cantiere + ricerca */}
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  placeholder="Cerca nei commenti..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="border rounded w-full p-2"
+                />
+                <select
+                  value={filterCantiere}
+                  onChange={(e) => setFilterCantiere(e.target.value)}
+                  className="border rounded p-2"
+                >
+                  <option>Tutti</option>
+                  {CANTIERI.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              {allReports.length === 0 ? (
+                <p className="text-gray-500 text-center">Nessuna segnalazione presente.</p>
+              ) : (
+                allReports.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`border rounded p-3 mb-2 shadow-sm ${r.completed ? "bg-green-50" : "bg-gray-50"}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <strong>{r.cantiere}</strong>
+                        <p className="whitespace-pre-wrap">{r.comment}</p>
+                        <small className="text-gray-500">{formatDate(r.createdAt)}</small>
+                      </div>
+                      <span className={`text-xs font-semibold ${r.completed ? "text-green-700" : "text-amber-600"}`}>
+                        {r.completed ? "Completata" : "Aperta"}
+                      </span>
+                    </div>
+
+                    {/* Miniature foto */}
+                    {r.photos?.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {r.photos.map((p, i) => (
+                          <img
+                            key={i}
+                            src={p.dataUrl}
+                            alt={p.name}
+                            className="w-20 h-20 object-cover rounded border cursor-pointer"
+                            onClick={() => setModalImg(p.dataUrl)}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Se completata: dettagli chiusura */}
+                    {r.completed && (
+                      <div className="mt-2">
+                        <p className="text-sm text-green-700">
+                          <strong>Chiusura:</strong> {r.closingComment || "-"}
+                        </p>
+                        <small className="text-gray-600">
+                          Completato il: {formatDate(r.completedAt)}
+                        </small>
+
+                        {(r.closingPhotos?.length > 0 || r.closingPhoto?.dataUrl) && (
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {(r.closingPhotos?.length ? r.closingPhotos : [r.closingPhoto]).filter(Boolean).map((p, i) => (
+                              <img
+                                key={i}
+                                src={p.dataUrl}
+                                alt={"closing_"+i}
+                                className="w-20 h-20 object-cover rounded border cursor-pointer"
+                                onClick={() => setModalImg(p.dataUrl)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           )}
 
@@ -1075,12 +1007,21 @@ export default function App() {
       {/* NAVBAR */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-inner flex justify-around py-2 z-50">
         <button
-          onClick={() => setView("list")}
-          className={`flex flex-col items-center ${view === "list" ? "text-green-600" : "text-gray-500"}`}
+          onClick={() => setView("open")}
+          className={`flex flex-col items-center ${view === "open" ? "text-green-600" : "text-gray-500"}`}
         >
           <ClipboardList size={22} />
-          <span className="text-xs">Lista</span>
+          <span className="text-xs">Aperte</span>
         </button>
+
+        <button
+          onClick={() => setView("all")}
+          className={`flex flex-col items-center ${view === "all" ? "text-green-600" : "text-gray-500"}`}
+        >
+          <ClipboardList size={22} />
+          <span className="text-xs">Tutte</span>
+        </button>
+
         <button
           onClick={() => setView("map")}
           className={`flex flex-col items-center ${view === "map" ? "text-green-600" : "text-gray-500"}`}
