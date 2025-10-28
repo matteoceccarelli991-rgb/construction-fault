@@ -147,7 +147,7 @@ useEffect(() => {
   });
 }, []);
 
-  // ---------- Foto: compressione > 2MB ----------
+  // FOTO: compressione ottimizzata (WebP 1200px @ 0.8 con fallback iOS)
   async function handlePhotoUpload(e) {
     const files = Array.from(e.target.files);
 
@@ -158,74 +158,77 @@ useEffect(() => {
           const img = new Image();
           img.onload = () => {
             const canvas = document.createElement("canvas");
-            const MAX_WIDTH = 1600;
+            const MAX_WIDTH = 1200;
             const scale = Math.min(1, MAX_WIDTH / img.width);
             canvas.width = Math.round(img.width * scale);
             canvas.height = Math.round(img.height * scale);
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const quality = file.size > 2 * 1024 * 1024 ? 0.7 : 0.9;
-            canvas.toBlob(
-              (blob) => {
-                const r2 = new FileReader();
-                r2.onload = (ev2) =>
-                  resolve({
-                    dataUrl: ev2.target.result,
-                    name: file.name,
-                    compressed: file.size > 2 * 1024 * 1024,
-                  });
-                r2.readAsDataURL(blob);
-              },
-              "image/jpeg",
-              quality
-            );
-          };
-          img.src = ev.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-    }
+            const format = /iPhone|iPad|Safari/.test(navigator.userAgent)
+            ? "image/jpeg"
+            : "image/webp";
 
-    const results = await Promise.all(files.map((f) => compressImage(f)));
-    setTempPhotos((prev) => [...prev, ...results]);
-    const compressed = results.filter((r) => r.compressed).length;
-    if (compressed > 0) alert(`${compressed} foto sono state compresse automaticamente.`);
-  }
-
-  // Foto chiusura: compressione leggera (single)
-  async function handleClosingPhotoUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const dataUrl = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const MAX_WIDTH = 1200;
-          const scale = Math.min(1, MAX_WIDTH / img.width);
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const quality = file.size > 2 * 1024 * 1024 ? 0.7 : 0.9;
           canvas.toBlob(
             (blob) => {
               const r2 = new FileReader();
-              r2.onload = (ev2) => resolve(ev2.target.result);
+              r2.onload = (ev2) =>
+                resolve({
+                  dataUrl: ev2.target.result,
+                  name: file.name,
+                  compressed: true,
+                });
               r2.readAsDataURL(blob);
             },
-            "image/jpeg",
-            quality
+            format,
+            0.8
           );
         };
         img.src = ev.target.result;
       };
       reader.readAsDataURL(file);
     });
-    setClosingTempPhoto({ dataUrl, name: file.name });
   }
+ 
+ // FOTO CHIUSURA: compressione ottimizzata (WebP 1200px @ 0.8 con fallback iOS)
+  async function handleClosingPhotoUpload(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
+  const dataUrl = await new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 1200;
+        const scale = Math.min(1, MAX_WIDTH / img.width);
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const format = /iPhone|iPad|Safari/.test(navigator.userAgent)
+          ? "image/jpeg"
+          : "image/webp";
+
+        canvas.toBlob(
+          (blob) => {
+            const r2 = new FileReader();
+            r2.onload = (ev2) => resolve(ev2.target.result);
+            r2.readAsDataURL(blob);
+          },
+          format,
+          0.8
+        );
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+  setClosingTempPhoto({ dataUrl, name: file.name });
+  alert("Foto di chiusura ottimizzata e caricata ✅");
+}
   // Salva segnalazione
   function saveReport() {
     if (!tempPhotos.length) return alert("Aggiungi almeno una foto");
@@ -765,7 +768,7 @@ useEffect(() => {
                  📍 {gpsStatus}
                </p>
             )}
-            
+
               {/* Filtri */}
               <div className="flex gap-2 mb-3">
                 <input
