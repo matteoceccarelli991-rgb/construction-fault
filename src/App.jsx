@@ -79,15 +79,67 @@ useEffect(() => {
     console.error("Errore salvataggio IndexedDB:", err)
   );
 }, [reports]);
-  // Geolocalizzazione
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => setUserPos(defaultPos)
-      );
-    } else setUserPos(defaultPos);
-  }, []);
+ // Geolocalizzazione con alta precisione e campionamento multiplo
+useEffect(() => {
+  if (!navigator.geolocation) {
+    setUserPos(defaultPos);
+    return;
+  }
+
+  function getBestPosition(callback) {
+    let best = null;
+    let count = 0;
+
+    const watcher = navigator.geolocation.watchPosition(
+      (pos) => {
+        console.log(
+          "Rilevata posizione:",
+          pos.coords.latitude,
+          pos.coords.longitude,
+          "±",
+          pos.coords.accuracy,
+          "m"
+        );
+
+        // Tiene la posizione più precisa
+        if (!best || pos.coords.accuracy < best.coords.accuracy) {
+          best = pos;
+        }
+
+        count++;
+
+        // Dopo 3 letture, usa la migliore e ferma il watcher
+        if (count >= 3) {
+          navigator.geolocation.clearWatch(watcher);
+          callback(best);
+        }
+      },
+      (err) => {
+        console.error("Errore GPS:", err);
+        callback(null);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000, // tempo massimo un po' più lungo
+        maximumAge: 0,
+      }
+    );
+  }
+
+  // Chiama la funzione per ottenere la posizione migliore
+  getBestPosition((pos) => {
+    if (pos) {
+      setUserPos({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      });
+      console.log("Precisione finale:", pos.coords.accuracy, "metri");
+    } else {
+      setUserPos(defaultPos);
+    }
+  });
+}, []);
 
   // ---------- Foto: compressione > 2MB ----------
   async function handlePhotoUpload(e) {
