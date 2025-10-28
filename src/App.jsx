@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { ClipboardList, Map as MapIcon, CheckCircle, Upload } from "lucide-react";
+import localforage from "localforage";
 
 const STORAGE_KEY = "construction_fault_reports_v17"; // manteniamo la stessa chiave per compatibilità
 const CANTIERI = [
@@ -17,14 +18,28 @@ const formatDate = (iso) => (iso ? new Date(iso).toLocaleString() : "-");
 
 export default function App() {
   // Stato base
-  const [reports, setReports] = useState(() => {
+  const [reports, setReports] = useState([]);
+
+useEffect(() => {
+  (async () => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
+      const data = await localforage.getItem(STORAGE_KEY);
+      if (data) {
+        setReports(data);
+      } else {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          await localforage.setItem(STORAGE_KEY, parsed);
+          setReports(parsed);
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    } catch (err) {
+      console.error("Errore caricamento IndexedDB:", err);
     }
-  });
+  })();
+}, []);
   const [view, setView] = useState("list");
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
   const [mapType, setMapType] = useState("satellite"); // satellite di default
@@ -59,8 +74,11 @@ export default function App() {
   const mapRef = useRef();
 
   // Persistenza
-  useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(reports)), [reports]);
-
+  useEffect(() => {
+  localforage.setItem(STORAGE_KEY, reports).catch((err) =>
+    console.error("Errore salvataggio IndexedDB:", err)
+  );
+}, [reports]);
   // Geolocalizzazione
   useEffect(() => {
     if (navigator.geolocation) {
