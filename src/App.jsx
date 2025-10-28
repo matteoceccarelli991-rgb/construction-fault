@@ -44,6 +44,7 @@ useEffect(() => {
   const [newCantiere, setNewCantiere] = useState(CANTIERI[0]);
   const [mapType, setMapType] = useState("satellite"); // satellite di default
   const [userPos, setUserPos] = useState(null);
+  const [gpsStatus, setGpsStatus] = useState("In attesa posizione…");
   const [tempPhotos, setTempPhotos] = useState([]);
   const [search, setSearch] = useState("");
   const [filterCantiere, setFilterCantiere] = useState("Tutti");
@@ -87,44 +88,49 @@ useEffect(() => {
   }
 
   function getBestPosition(callback) {
-    let best = null;
-    let count = 0;
+  let best = null;
+  let count = 0;
 
-    const watcher = navigator.geolocation.watchPosition(
-      (pos) => {
-        console.log(
-          "Rilevata posizione:",
-          pos.coords.latitude,
-          pos.coords.longitude,
-          "±",
-          pos.coords.accuracy,
-          "m"
-        );
+  setGpsStatus("Calcolo posizione precisa...");
 
-        // Tiene la posizione più precisa
-        if (!best || pos.coords.accuracy < best.coords.accuracy) {
-          best = pos;
-        }
+  const watcher = navigator.geolocation.watchPosition(
+    (pos) => {
+      console.log(
+        "Rilevata posizione:",
+        pos.coords.latitude,
+        pos.coords.longitude,
+        "±",
+        pos.coords.accuracy,
+        "m"
+      );
 
-        count++;
-
-        // Dopo 3 letture, usa la migliore e ferma il watcher
-        if (count >= 3) {
-          navigator.geolocation.clearWatch(watcher);
-          callback(best);
-        }
-      },
-      (err) => {
-        console.error("Errore GPS:", err);
-        callback(null);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000, // tempo massimo un po' più lungo
-        maximumAge: 0,
+      // Tiene la posizione più precisa
+      if (!best || pos.coords.accuracy < best.coords.accuracy) {
+        best = pos;
+        setGpsStatus(`Precisione attuale: ±${Math.round(pos.coords.accuracy)} m`);
       }
-    );
-  }
+
+      count++;
+
+      // Dopo 3 letture, usa la migliore e ferma il watcher
+      if (count >= 3) {
+        navigator.geolocation.clearWatch(watcher);
+        setGpsStatus(`Precisione finale: ±${Math.round(best.coords.accuracy)} m`);
+        callback(best);
+      }
+    },
+    (err) => {
+      console.error("Errore GPS:", err);
+      setGpsStatus("Errore nel rilevamento GPS");
+      callback(null);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0,
+    }
+  );
+}
 
   // Chiama la funzione per ottenere la posizione migliore
   getBestPosition((pos) => {
@@ -745,7 +751,21 @@ useEffect(() => {
               >
                 Salva segnalazione
               </button>
-
+             {/* Stato GPS con colore dinamico */}
+             {gpsStatus && (
+               <p
+                 className={`text-sm text-center mb-4 ${
+                   gpsStatus.includes("finale") && gpsStatus.includes("±")
+                     ? parseInt(gpsStatus.match(/±(\d+)/)?.[1] || 999) < 5
+                       ? "text-green-600"
+                       : "text-orange-600"
+                     : "text-gray-600"
+                 }`}
+               >
+                 📍 {gpsStatus}
+               </p>
+            )}
+            
               {/* Filtri */}
               <div className="flex gap-2 mb-3">
                 <input
