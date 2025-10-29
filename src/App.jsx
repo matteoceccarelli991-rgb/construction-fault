@@ -188,7 +188,12 @@ useEffect(() => {
       reader.readAsDataURL(file);
     });
   }
- 
+ // Dopo aver definito compressImage(file)
+const compressedPhotos = await Promise.all(files.map((f) => compressImage(f)));
+
+// Aggiorna stato con le nuove foto
+setTempPhotos((prev) => [...prev, ...compressedPhotos]);
+
  // FOTO CHIUSURA: compressione ottimizzata (WebP 1200px @ 0.8 con fallback iOS)
   async function handleClosingPhotoUpload(e) {
   const file = e.target.files?.[0];
